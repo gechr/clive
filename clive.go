@@ -1,0 +1,316 @@
+// Package clive provides version detection, display, and "latest version"
+// lookup for Go CLI binaries.
+//
+// Callers inject build metadata via -ldflags:
+//
+//	-X github.com/gechr/clive.version=$(VERSION)
+//	-X github.com/gechr/clive.buildTime=$(BUILDTIME)
+//
+// When ldflags are not set (e.g. `go install ...@latest` or `go build`
+// without flags), Current falls back to debug.BuildInfo so the binary
+// still reports a sensible version string.
+package clive
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"net/url"
+	"os"
+	"os/exec"
+	"runtime"
+	"runtime/debug"
+	"strings"
+	"sync"
+	"time"
+
+	mmsemver "github.com/Masterminds/semver/v3"
+	"github.com/gechr/clive/semver"
+	xansi "github.com/gechr/x/ansi"
+	"github.com/gechr/x/human"
+	"github.com/gechr/x/terminal"
+)
+
+// Linker-injected build metadata. Set via -ldflags; left empty otherwise.
+var (
+	version   string
+	commit    string
+	buildTime string
+
+	currentOnce sync.Once
+	current     string
+)
+
+// Info identifies the binary for version-link and latest-lookup purposes.
+// The zero value is usable for Current/Print but Latest and VersionLink
+// require Module (and Repo for hyperlinks).
+type Info struct {
+	// Module is the Go module path, e.g. "github.com/gechr/clone".
+	// Required by Latest.
+	Module string
+
+	// Repo is the GitHub "owner/name" used to build release/commit URLs.
+	// If empty and Module starts with "github.com/", Repo is derived from it.
+	Repo string
+}
+
+// repo returns Repo, deriving it from Module when unset.
+func (i Info) repo() string {
+	if i.Repo != "" {
+		return i.Repo
+	}
+	if rest, ok := strings.CutPrefix(i.Module, "github.com/"); ok {
+		return rest
+	}
+	return ""
+}
+
+// Current returns the version string for the running binary, computing it
+// once and caching the result.
+//
+// Resolution order:
+//  1. ldflag-injected `version` (Makefile path)
+//  2. debug.BuildInfo Main.Version (Go module proxy / `go install`)
+//  3. debug.BuildInfo vcs.revision (plain `go build`)
+//
+// Dev versions are normalised so a trailing "-dev" is preserved or appended
+// as appropriate.
+func Current() string {
+	currentOnce.Do(func() {
+		v := semver.RemovePrefix(version)
+		switch {
+		case v == "":
+			v = tryRevision()
+		case commit == "":
+			// version came from `git describe` (0.21.4-1-g4bed8a3) or was
+			// already reformatted by the Makefile (0.21.4-1-g4bed8a3-dev).
+			// Either way, ensure a -dev suffix and preserve the commit count.
+			if semver.IsDev(v) && !strings.HasSuffix(v, "-dev") {
+				v = format(v + "-dev")
+			} else {
+				v = format(v)
+			}
+		default:
+			v = format(v)
+		}
+		current = v
+	})
+	return current
+}
+
+// Print writes Current to stdout, or a friendly placeholder when unknown.
+func Print() {
+	if v := Current(); v != "" {
+		fmt.Println(v)
+	} else {
+		fmt.Println("Version information is not available")
+	}
+}
+
+// PrintDetailed writes a labelled table of version, Go runtime, OS/arch,
+// build time, and VCS info. When i.Repo (or i.Module) is set, the version
+// row is rendered as a clickable terminal hyperlink.
+func (i Info) PrintDetailed() {
+	v := Current()
+	if v == "" {
+		v = "(unknown)"
+	}
+
+	rows := [][2]string{
+		{"Version", i.VersionLink(v)},
+		{"Go version", runtime.Version()},
+		{"OS/Arch", runtime.GOOS + "/" + runtime.GOARCH},
+	}
+
+	if buildTime != "" {
+		val := buildTime
+		if t, err := time.Parse(time.RFC3339, buildTime); err == nil {
+			val = fmt.Sprintf("%s (%s)", buildTime, human.FormatTimeAgo(t))
+		}
+		rows = append(rows, [2]string{"Built", val})
+	}
+
+	if info, ok := debug.ReadBuildInfo(); ok {
+		var rev, modified string
+		for _, s := range info.Settings {
+			switch s.Key {
+			case "vcs.revision":
+				rev = s.Value
+			case "vcs.modified":
+				modified = s.Value
+			}
+		}
+		if rev != "" {
+			rows = append(rows, [2]string{"Commit", rev})
+		}
+		if modified == "true" {
+			rows = append(rows, [2]string{"Dirty", "true"})
+		}
+	}
+
+	maxWidth := 0
+	for _, r := range rows {
+		if len(r[0]) > maxWidth {
+			maxWidth = len(r[0])
+		}
+	}
+	for _, r := range rows {
+		fmt.Printf("%-*s  %s\n", maxWidth+1, r[0]+":", r[1])
+	}
+}
+
+// VersionLink returns v rendered as a clickable terminal hyperlink to the
+// matching GitHub tag (release versions) or commit (dev versions).
+// If i has no usable Repo, v is returned unchanged.
+func (i Info) VersionLink(v string) string {
+	if v == "" {
+		return v
+	}
+	repo := i.repo()
+	if repo == "" {
+		return v
+	}
+
+	if hash := extractCommitHash(v); hash != "" {
+		linkURL, _ := url.JoinPath("https://github.com", repo, "commit", hash)
+		return hyperlink(linkURL, v)
+	}
+
+	if _, err := mmsemver.NewVersion(v); err == nil {
+		linkURL, _ := url.JoinPath(
+			"https://github.com", repo, "releases", "tag", semver.AddPrefix(v),
+		)
+		return hyperlink(linkURL, v)
+	}
+	return v
+}
+
+// hyperlink renders an OSC 8 terminal hyperlink when stdout is a terminal,
+// degrading to just the display text (no URL) otherwise.
+func hyperlink(url, text string) string {
+	a := xansi.New(
+		xansi.WithTerminal(terminal.Is(os.Stdout)),
+		xansi.WithHyperlinkFallback(xansi.HyperlinkFallbackText),
+	)
+	return a.Hyperlink(url, text)
+}
+
+// Latest queries the Go module proxy for the latest published version of
+// i.Module. Returns the raw `result.Version` string from `go list -m -json`.
+// Requires `go` on PATH.
+func (i Info) Latest(ctx context.Context) (string, error) {
+	if i.Module == "" {
+		return "", fmt.Errorf("clive: Latest requires Info.Module")
+	}
+	goBin, err := exec.LookPath("go")
+	if err != nil {
+		return "", fmt.Errorf("go toolchain not found on PATH: %w", err)
+	}
+
+	cmd := exec.CommandContext(ctx, goBin, "list", "-m", "-json", i.Module+"@latest")
+	stdout, err := cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("go list -m: %w", err)
+	}
+
+	var result struct {
+		Version string `json:"Version"` //nolint:tagliatelle // matches `go list -m -json` output
+	}
+	if err := json.Unmarshal(stdout, &result); err != nil {
+		return "", fmt.Errorf("parse go list output: %w", err)
+	}
+	return result.Version, nil
+}
+
+// format normalises a non-empty version into the canonical "vX.Y.Z[...]"
+// shape: ensures a leading "v" and trims a trailing "-".
+func format(v string) string {
+	return "v" + strings.TrimSuffix(semver.RemovePrefix(v), "-")
+}
+
+// pseudoVersionParts is the number of dash-separated parts in a Go
+// pseudo-version: base-timestamp-hash.
+const pseudoVersionParts = 3
+
+// tryRevision falls back to debug.BuildInfo when no ldflag version is set, so a
+// `go install module@version` (or plain `go build`) binary still reports a
+// sensible version.
+func tryRevision() string {
+	info, ok := debug.ReadBuildInfo()
+	if !ok {
+		return ""
+	}
+	return DeriveVersion(info.Main.Version, vcsRevision(info))
+}
+
+// DeriveVersion resolves a display version from Go build metadata. A module
+// version (set by `go install module@version` via the module proxy) is
+// preferred over a VCS revision (from a plain `go build`). It returns "" when
+// neither is available. [Current] uses it as the fallback when no version was
+// injected via ldflags.
+func DeriveVersion(moduleVersion, revision string) string {
+	if moduleVersion != "" && moduleVersion != "(devel)" {
+		mv := semver.RemovePrefix(moduleVersion)
+		parts := strings.Split(mv, "-")
+		if len(parts) != pseudoVersionParts {
+			return format(mv) // a tagged release, e.g. v1.2.3
+		}
+		// A pseudo-version (base-timestamp-hash): keep the base and short hash.
+		return format(fmt.Sprintf("%s-g%.7s-dev", parts[0], parts[2]))
+	}
+	if revision != "" {
+		return format(fmt.Sprintf("0.0.0-g%.7s-dev", semver.RemovePrefix(revision)))
+	}
+	return ""
+}
+
+// vcsRevision returns the build's VCS revision, or "" when not embedded.
+func vcsRevision(info *debug.BuildInfo) string {
+	for _, s := range info.Settings {
+		if s.Key == "vcs.revision" {
+			return s.Value
+		}
+	}
+	return ""
+}
+
+// extractCommitHash pulls a commit hash out of a dev-format version string,
+// or "" if v is a plain release.
+func extractCommitHash(v string) string {
+	v = semver.RemovePrefix(v)
+	// "X.Y.Z-N-gHASH" or "X.Y.Z-N-gHASH-dev"
+	if idx := strings.LastIndex(v, "-g"); idx > 0 {
+		rest := v[idx+2:]
+		rest = strings.TrimSuffix(rest, "-dev")
+		if isHex(rest) {
+			return rest
+		}
+	}
+	// Old "X.Y.Z-HASH-dev" with no -g marker
+	if rest, ok := strings.CutSuffix(v, "-dev"); ok {
+		if i := strings.LastIndex(rest, "-"); i > 0 {
+			cand := rest[i+1:]
+			if isHex(cand) {
+				return cand
+			}
+		}
+	}
+	return ""
+}
+
+func isHex(s string) bool {
+	if len(s) < 7 { //nolint:mnd // git --abbrev=7.
+		return false
+	}
+	for _, c := range s {
+		switch {
+		case c >= '0' && c <= '9',
+			c >= 'a' && c <= 'f',
+			c >= 'A' && c <= 'F':
+			continue
+		default:
+			return false
+		}
+	}
+	return true
+}
