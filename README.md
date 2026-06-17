@@ -1,13 +1,13 @@
 # clive
 
-Version detection, display, and update-check helpers for Go CLI binaries.
+Version detection, display, and update-check helpers for Go CLIs.
 
 ## Packages
 
-| Package        | Description                                                          |
-| -------------- | -------------------------------------------------------------------- |
-| `clive`        | `Info`, `Current`, `Print`, `PrintDetailed`, `VersionLink`, `Latest` |
-| `clive/semver` | Version parsing, dev-build detection, natural-sort comparison        |
+| Package        | Description                                                    |
+| -------------- | -------------------------------------------------------------- |
+| `clive`        | Version detection, display, and update checks                  |
+| `clive/semver` | [Semantic version](https://semver.org/) parsing and comparison |
 
 ## Installation
 
@@ -19,13 +19,13 @@ go get github.com/gechr/clive
 
 ### Inject build metadata via `-ldflags`
 
-```make
-VERSION   ?= $(shell git describe --tags 2>/dev/null || echo 0.0.0-dev)
-BUILDTIME ?= $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
+```bash
+VERSION=$(git describe --tags)
+BUILDTIME=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 
-GO_LDFLAGS := -s -w \
-  -X github.com/gechr/clive.version=$(VERSION) \
-  -X github.com/gechr/clive.buildTime=$(BUILDTIME)
+go build -ldflags "-s -w \
+  -X github.com/gechr/clive.version=${VERSION} \
+  -X github.com/gechr/clive.buildTime=${BUILDTIME}" ./...
 ```
 
 When ldflags are not set (e.g. `go install ...@latest`), `clive.Current` falls
@@ -73,6 +73,15 @@ info := clive.Info{
 
 ```go
 latest, err := info.Latest(ctx)
+```
+
+### Check for updates
+
+```go
+info := clive.Info{Module: "github.com/gechr/myapp"}
+if ok, _ := info.UpdateAvailable(ctx); ok {
+    fmt.Printf("A new version is available. Run: go install %s@latest\n", info.Module)
+}
 ```
 
 ### Compare versions

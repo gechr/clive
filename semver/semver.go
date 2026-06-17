@@ -4,6 +4,7 @@
 package semver
 
 import (
+	"strconv"
 	"strings"
 
 	"github.com/Masterminds/semver/v3"
@@ -12,10 +13,7 @@ import (
 const (
 	prefix = "v"
 
-	// markerGit is the git hash marker in git describe format ("-g55ae225").
-	markerGit = "-g"
-
-	// markerDev is the dev suffix ("-dev").
+	markerGit = "-g" // git describe --long hash prefix, e.g. "-g55ae225"
 	markerDev = "-dev"
 )
 
@@ -85,6 +83,27 @@ func IsDev(v string) bool {
 
 	commitCount := prefix[lastDash+1:]
 	return isAllDigits(commitCount)
+}
+
+// CommitCount returns the number of commits since the last tag embedded in a
+// git-describe-formatted version string (e.g. "v1.2.3-4-gabcdef[-dev]"), or 0.
+func CommitCount(v string) int {
+	v = strings.TrimSuffix(RemovePrefix(v), markerDev)
+	idx := strings.LastIndex(v, markerGit)
+	if idx <= 0 {
+		return 0
+	}
+	prefix := v[:idx]
+	lastDash := strings.LastIndex(prefix, "-")
+	if lastDash < 0 {
+		return 0
+	}
+	countStr := prefix[lastDash+1:]
+	if !isAllDigits(countStr) {
+		return 0
+	}
+	n, _ := strconv.Atoi(countStr)
+	return n
 }
 
 // ExtractBase recovers the underlying release version from a dev version.

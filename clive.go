@@ -1,5 +1,5 @@
 // Package clive provides version detection, display, and "latest version"
-// lookup for Go CLI binaries.
+// lookup for Go CLIs.
 //
 // Callers inject build metadata via -ldflags:
 //
@@ -116,11 +116,14 @@ func (i Info) PrintDetailed() {
 		v = "(unknown)"
 	}
 
-	rows := [][2]string{
-		{"Version", i.VersionLink(v)},
-		{"Go version", runtime.Version()},
-		{"OS/Arch", runtime.GOOS + "/" + runtime.GOARCH},
+	rows := [][2]string{{"Version", i.VersionLink(v)}}
+	if n := semver.CommitCount(v); n > 0 {
+		rows = append(rows, [2]string{"Commits since tag", fmt.Sprintf("%d", n)})
 	}
+	rows = append(rows,
+		[2]string{"Go version", runtime.Version()},
+		[2]string{"OS/Arch", runtime.GOOS + "/" + runtime.GOARCH},
+	)
 
 	if buildTime != "" {
 		val := buildTime
@@ -193,6 +196,32 @@ func hyperlink(url, text string) string {
 		xansi.WithHyperlinkFallback(xansi.HyperlinkFallbackText),
 	)
 	return a.Hyperlink(url, text)
+}
+
+// UpdateAvailable reports whether a newer version of i.Module is available on
+// the module proxy than the currently running binary. It returns (false, nil)
+// when the current version cannot be parsed or is already the latest.
+// Requires `go` on PATH.
+func (i Info) UpdateAvailable(ctx context.Context) (bool, error) {
+	latestRaw, err := i.Latest(ctx)
+	if err != nil {
+		return false, err
+	}
+	return isNewer(Current(), latestRaw), nil
+}
+
+// isNewer reports whether latestRaw is a strictly greater semver than currentRaw.
+// Returns false if either string cannot be parsed as a semver.
+func isNewer(currentRaw, latestRaw string) bool {
+	cur, err := mmsemver.NewVersion(currentRaw)
+	if err != nil {
+		return false
+	}
+	lat, err := mmsemver.NewVersion(latestRaw)
+	if err != nil {
+		return false
+	}
+	return semver.GreaterThan(lat, cur)
 }
 
 // Latest queries the Go module proxy for the latest published version of

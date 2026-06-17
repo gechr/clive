@@ -99,3 +99,33 @@ func TestIsHex(t *testing.T) {
 		})
 	}
 }
+
+func TestIsNewer(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		current string
+		latest  string
+		want    bool
+	}{
+		{name: "newer available", current: "v1.0.0", latest: "v1.1.0", want: true},
+		{name: "same version", current: "v1.0.0", latest: "v1.0.0", want: false},
+		{name: "current is newer", current: "v1.1.0", latest: "v1.0.0", want: false},
+		{
+			name:    "dev current, release latest",
+			current: "v1.0.0-g4bed8a3-dev",
+			latest:  "v1.0.0",
+			want:    true,
+		},
+		{name: "unparseable current", current: "not-a-version", latest: "v1.0.0", want: false},
+		{name: "unparseable latest", current: "v1.0.0", latest: "not-a-version", want: false},
+		{name: "both empty", current: "", latest: "", want: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			assert.Equal(t, tt.want, isNewer(tt.current, tt.latest))
+		})
+	}
+}

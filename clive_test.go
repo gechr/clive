@@ -1,11 +1,22 @@
 package clive_test
 
 import (
+	"context"
 	"testing"
 
 	"github.com/gechr/clive"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
+
+func TestUpdateAvailableNoModule(t *testing.T) {
+	t.Parallel()
+
+	// Info with no Module cannot query the proxy.
+	i := clive.Info{}
+	_, err := i.UpdateAvailable(context.Background())
+	require.Error(t, err)
+}
 
 func TestVersionLinkNoRepo(t *testing.T) {
 	t.Parallel()
