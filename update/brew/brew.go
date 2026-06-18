@@ -190,13 +190,15 @@ func (r *runner) install(ctx context.Context, head bool) error {
 	return r.report(ctx)
 }
 
-// tap adds the configured tap, passing its git URL when set (for a private tap).
+// tap registers the configured tap (with its git URL for a private tap) so the
+// formula resolves. It runs silently (no spinner line) but still returns an
+// error, so a genuine tap failure stops the update instead of being masked.
 func (r *runner) tap(ctx context.Context) error {
 	args := []string{"tap", r.cfg.Tap}
 	if r.cfg.TapURL != "" {
 		args = append(args, r.cfg.TapURL)
 	}
-	return r.spin(ctx, fmt.Sprintf("Tapping %s", r.cfg.Tap), args...)
+	return r.run(ctx, args...)
 }
 
 // report logs the resulting version, as an old→new pair when it changed.
@@ -283,28 +285,38 @@ func (r *runner) cleanup(ctx context.Context) {
 }
 
 // spin runs a brew command under a spinner: it logs a completion line on
-// success, and on failure returns brew's stderr (or the raw error) for the
-// caller to surface. The failure path uses Silent so the spinner does not log
-// its own error line, leaving the caller to report the failure exactly once.
+// success, and on failure returns the error (via [runner.run]) for the caller
+// to surface. The failure path uses Silent so the spinner does not log its own
+// error line, leaving the caller to report the failure exactly once.
 func (r *runner) spin(ctx context.Context, msg string, args ...string) error {
-	var stderr bytes.Buffer
 	res := clog.Spinner(msg).Elapsed("elapsed").Wait(ctx, func(ctx context.Context) error {
-		cmd := r.brewCmd(ctx, args...)
-		if clog.IsVerbose() {
-			cmd.Stdout = os.Stdout
-			cmd.Stderr = io.MultiWriter(os.Stderr, &stderr)
-		} else {
-			cmd.Stderr = &stderr
-		}
-		return cmd.Run()
+		return r.run(ctx, args...)
 	})
 	if err := res.Silent(); err != nil {
+		return err
+	}
+	return res.Msg(msg)
+}
+
+// run executes a brew command without any logging, capturing stderr so a
+// failure carries brew's own message rather than a bare "exit status 1". In
+// verbose mode the command's output is also streamed to the terminal.
+func (r *runner) run(ctx context.Context, args ...string) error {
+	var stderr bytes.Buffer
+	cmd := r.brewCmd(ctx, args...)
+	if clog.IsVerbose() {
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = io.MultiWriter(os.Stderr, &stderr)
+	} else {
+		cmd.Stderr = &stderr
+	}
+	if err := cmd.Run(); err != nil {
 		if detail := strings.TrimSpace(stderr.String()); detail != "" {
 			return errors.New(detail)
 		}
 		return err
 	}
-	return res.Msg(msg)
+	return nil
 }
 
 // brewSilent runs a best-effort brew command, ignoring its outcome (e.g. an
