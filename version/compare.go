@@ -1,4 +1,4 @@
-package semver
+package version
 
 import (
 	"github.com/Masterminds/semver/v3"

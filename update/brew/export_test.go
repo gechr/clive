@@ -1,0 +1,8 @@
+package brew
+
+// Exposed for black-box tests of the package's pure helpers.
+
+var HeadBuild = headBuild
+
+func (c Config) BinaryName() string { return c.binary() }
+func (c Config) FormulaRef() string { return c.formulaRef() }

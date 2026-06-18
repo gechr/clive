@@ -1,7 +1,7 @@
-// Package semver provides version parsing helpers shared by clive
+// Package version provides version parsing helpers shared by clive
 // and its subpackages. It wraps Masterminds/semver with prefix stripping,
 // dev-version detection, and natural-sort prerelease comparison.
-package semver
+package version
 
 import (
 	"strconv"

@@ -1,9 +1,9 @@
-package semver_test
+package version_test
 
 import (
 	"testing"
 
-	"github.com/gechr/clive/semver"
+	"github.com/gechr/clive/version"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -23,7 +23,7 @@ func TestHasPrefix(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.in, func(t *testing.T) {
 			t.Parallel()
-			assert.Equal(t, tt.want, semver.HasPrefix(tt.in))
+			assert.Equal(t, tt.want, version.HasPrefix(tt.in))
 		})
 	}
 }
@@ -42,7 +42,7 @@ func TestAddPrefix(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.in, func(t *testing.T) {
 			t.Parallel()
-			assert.Equal(t, tt.want, semver.AddPrefix(tt.in))
+			assert.Equal(t, tt.want, version.AddPrefix(tt.in))
 		})
 	}
 }
@@ -61,7 +61,7 @@ func TestRemovePrefix(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.in, func(t *testing.T) {
 			t.Parallel()
-			assert.Equal(t, tt.want, semver.RemovePrefix(tt.in))
+			assert.Equal(t, tt.want, version.RemovePrefix(tt.in))
 		})
 	}
 }
@@ -88,7 +88,7 @@ func TestParse(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			got, err := semver.Parse(tt.in)
+			got, err := version.Parse(tt.in)
 			if tt.wantErr {
 				require.Error(t, err)
 				return
@@ -134,7 +134,7 @@ func TestIsDev(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			assert.Equal(t, tt.want, semver.IsDev(tt.in))
+			assert.Equal(t, tt.want, version.IsDev(tt.in))
 		})
 	}
 }
@@ -172,7 +172,7 @@ func TestExtractBase(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			assert.Equal(t, tt.want, semver.ExtractBase(tt.in))
+			assert.Equal(t, tt.want, version.ExtractBase(tt.in))
 		})
 	}
 }

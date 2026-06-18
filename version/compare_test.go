@@ -1,10 +1,10 @@
-package semver_test
+package version_test
 
 import (
 	"testing"
 
 	mmsemver "github.com/Masterminds/semver/v3"
-	"github.com/gechr/clive/semver"
+	"github.com/gechr/clive/version"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -40,7 +40,7 @@ func TestCompare(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			a, b := mustParse(t, tt.a), mustParse(t, tt.b)
-			assert.Equal(t, tt.want, semver.Compare(a, b))
+			assert.Equal(t, tt.want, version.Compare(a, b))
 		})
 	}
 }
@@ -49,9 +49,9 @@ func TestCompareNil(t *testing.T) {
 	t.Parallel()
 
 	v := mustParse(t, "1.0.0")
-	assert.Equal(t, 0, semver.Compare(nil, nil))
-	assert.Equal(t, -1, semver.Compare(nil, v))
-	assert.Equal(t, 1, semver.Compare(v, nil))
+	assert.Equal(t, 0, version.Compare(nil, nil))
+	assert.Equal(t, -1, version.Compare(nil, v))
+	assert.Equal(t, 1, version.Compare(v, nil))
 }
 
 func TestGreaterThanLessThanEqual(t *testing.T) {
@@ -60,10 +60,10 @@ func TestGreaterThanLessThanEqual(t *testing.T) {
 	a := mustParse(t, "1.2.3")
 	b := mustParse(t, "1.2.4")
 
-	assert.True(t, semver.GreaterThan(b, a))
-	assert.False(t, semver.GreaterThan(a, b))
-	assert.True(t, semver.LessThan(a, b))
-	assert.False(t, semver.LessThan(b, a))
-	assert.True(t, semver.Equal(a, mustParse(t, "1.2.3")))
-	assert.False(t, semver.Equal(a, b))
+	assert.True(t, version.GreaterThan(b, a))
+	assert.False(t, version.GreaterThan(a, b))
+	assert.True(t, version.LessThan(a, b))
+	assert.False(t, version.LessThan(b, a))
+	assert.True(t, version.Equal(a, mustParse(t, "1.2.3")))
+	assert.False(t, version.Equal(a, b))
 }

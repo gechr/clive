@@ -25,7 +25,7 @@ import (
 	"time"
 
 	mmsemver "github.com/Masterminds/semver/v3"
-	"github.com/gechr/clive/semver"
+	ver "github.com/gechr/clive/version"
 	xansi "github.com/gechr/x/ansi"
 	"github.com/gechr/x/human"
 	"github.com/gechr/x/terminal"
@@ -77,7 +77,7 @@ func (i Info) repo() string {
 // as appropriate.
 func Current() string {
 	currentOnce.Do(func() {
-		v := semver.RemovePrefix(version)
+		v := ver.RemovePrefix(version)
 		switch {
 		case v == "":
 			v = tryRevision()
@@ -85,7 +85,7 @@ func Current() string {
 			// version came from `git describe` (0.21.4-1-g4bed8a3) or was
 			// already reformatted by the Makefile (0.21.4-1-g4bed8a3-dev).
 			// Either way, ensure a -dev suffix and preserve the commit count.
-			if semver.IsDev(v) && !strings.HasSuffix(v, "-dev") {
+			if ver.IsDev(v) && !strings.HasSuffix(v, "-dev") {
 				v = format(v + "-dev")
 			} else {
 				v = format(v)
@@ -117,7 +117,7 @@ func (i Info) PrintDetailed() {
 	}
 
 	rows := [][2]string{{"Version", i.VersionLink(v)}}
-	if n := semver.CommitCount(v); n > 0 {
+	if n := ver.CommitCount(v); n > 0 {
 		rows = append(rows, [2]string{"Commits since tag", fmt.Sprintf("%d", n)})
 	}
 	rows = append(rows,
@@ -181,7 +181,7 @@ func (i Info) VersionLink(v string) string {
 
 	if _, err := mmsemver.NewVersion(v); err == nil {
 		linkURL, _ := url.JoinPath(
-			"https://github.com", repo, "releases", "tag", semver.AddPrefix(v),
+			"https://github.com", repo, "releases", "tag", ver.AddPrefix(v),
 		)
 		return hyperlink(linkURL, v)
 	}
@@ -221,7 +221,7 @@ func isNewer(currentRaw, latestRaw string) bool {
 	if err != nil {
 		return false
 	}
-	return semver.GreaterThan(lat, cur)
+	return ver.GreaterThan(lat, cur)
 }
 
 // Latest queries the Go module proxy for the latest published version of
@@ -254,7 +254,7 @@ func (i Info) Latest(ctx context.Context) (string, error) {
 // format normalises a non-empty version into the canonical "vX.Y.Z[...]"
 // shape: ensures a leading "v" and trims a trailing "-".
 func format(v string) string {
-	return "v" + strings.TrimSuffix(semver.RemovePrefix(v), "-")
+	return "v" + strings.TrimSuffix(ver.RemovePrefix(v), "-")
 }
 
 // pseudoVersionParts is the number of dash-separated parts in a Go
@@ -279,7 +279,7 @@ func tryRevision() string {
 // injected via ldflags.
 func DeriveVersion(moduleVersion, revision string) string {
 	if moduleVersion != "" && moduleVersion != "(devel)" {
-		mv := semver.RemovePrefix(moduleVersion)
+		mv := ver.RemovePrefix(moduleVersion)
 		parts := strings.Split(mv, "-")
 		if len(parts) != pseudoVersionParts {
 			return format(mv) // a tagged release, e.g. v1.2.3
@@ -288,7 +288,7 @@ func DeriveVersion(moduleVersion, revision string) string {
 		return format(fmt.Sprintf("%s-g%.7s-dev", parts[0], parts[2]))
 	}
 	if revision != "" {
-		return format(fmt.Sprintf("0.0.0-g%.7s-dev", semver.RemovePrefix(revision)))
+		return format(fmt.Sprintf("0.0.0-g%.7s-dev", ver.RemovePrefix(revision)))
 	}
 	return ""
 }
@@ -306,7 +306,7 @@ func vcsRevision(info *debug.BuildInfo) string {
 // extractCommitHash pulls a commit hash out of a dev-format version string,
 // or "" if v is a plain release.
 func extractCommitHash(v string) string {
-	v = semver.RemovePrefix(v)
+	v = ver.RemovePrefix(v)
 	// "X.Y.Z-N-gHASH" or "X.Y.Z-N-gHASH-dev"
 	if idx := strings.LastIndex(v, "-g"); idx > 0 {
 		rest := v[idx+2:]
