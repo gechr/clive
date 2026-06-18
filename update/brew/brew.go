@@ -64,7 +64,8 @@ func ChannelFor(dev, stable bool) Channel {
 type Config struct {
 	// Info carries the module path and repo for version checks and release links.
 	Info clive.Info
-	// Name is the display name shown in messages, e.g. "clover".
+	// Name is the display name shown in messages, e.g. "NGINX" for the nginx
+	// formula. Defaults to the binary name (and thus the formula) when unset.
 	Name string
 	// Formula is the Homebrew formula name.
 	Formula string
@@ -89,14 +90,14 @@ func Check(ctx context.Context, cfg Config) error {
 		return fmt.Errorf("check for updates: %w", err)
 	}
 	if !available {
-		upToDate(cfg.Name, cfg.Info, clive.Current())
+		upToDate(cfg.displayName(), cfg.Info, clive.Current())
 		return nil
 	}
 	latest, _ := cfg.Info.Latest(ctx)
 	clog.Info().
 		Str("current", cfg.Info.VersionLink(clive.Current())).
 		Str("latest", cfg.Info.VersionLink(latest)).
-		Msgf("An update is available; run `%s update`", cfg.Name)
+		Msgf("An update is available; run `%s update`", cfg.displayName())
 	return nil
 }
 
@@ -109,14 +110,14 @@ func Update(ctx context.Context, cfg Config, channel Channel) error {
 	if err != nil {
 		return fmt.Errorf(
 			"updating %s needs Homebrew; install it from https://brew.sh",
-			cfg.Name,
+			cfg.displayName(),
 		)
 	}
 	r := &runner{cfg: cfg, brew: brew, current: clive.Current()}
 
 	if err := r.spin(
 		ctx,
-		fmt.Sprintf("Refreshing the %s formula", cfg.Name),
+		fmt.Sprintf("Refreshing the %s formula", cfg.displayName()),
 		"update",
 		"--quiet",
 	); err != nil {
@@ -151,7 +152,7 @@ func (r *runner) upgrade(ctx context.Context) error {
 		args = append(args, "--fetch-HEAD")
 	}
 	args = append(args, r.cfg.Formula)
-	if err := r.spin(ctx, fmt.Sprintf("Upgrading %s", r.cfg.Name), args...); err != nil {
+	if err := r.spin(ctx, fmt.Sprintf("Upgrading %s", r.cfg.displayName()), args...); err != nil {
 		return err
 	}
 	r.cleanup(ctx)
@@ -182,7 +183,7 @@ func (r *runner) install(ctx context.Context, head bool) error {
 	if head {
 		verb = "Compiling"
 	}
-	if err := r.spin(ctx, fmt.Sprintf("%s %s", verb, r.cfg.Name), args...); err != nil {
+	if err := r.spin(ctx, fmt.Sprintf("%s %s", verb, r.cfg.displayName()), args...); err != nil {
 		return err
 	}
 	r.cleanup(ctx)
@@ -206,10 +207,10 @@ func (r *runner) report(ctx context.Context) error {
 		clog.Info().
 			Str("old", r.cfg.Info.VersionLink(old)).
 			Str("new", r.cfg.Info.VersionLink(current)).
-			Msgf("Updated %s", r.cfg.Name)
+			Msgf("Updated %s", r.cfg.displayName())
 		return nil
 	}
-	upToDate(r.cfg.Name, r.cfg.Info, cmp.Or(current, old))
+	upToDate(r.cfg.displayName(), r.cfg.Info, cmp.Or(current, old))
 	return nil
 }
 
@@ -271,9 +272,12 @@ func (r *runner) cleanup(ctx context.Context) {
 			continue
 		}
 		if err := os.Remove(path); err != nil {
-			clog.Warn().Str("path", path).Err(err).Msgf("Could not remove a stray %s", r.cfg.Name)
+			clog.Warn().
+				Str("path", path).
+				Err(err).
+				Msgf("Could not remove a stray %s", r.cfg.displayName())
 		} else {
-			clog.Info().Str("path", path).Msgf("Removed a stray %s", r.cfg.Name)
+			clog.Info().Str("path", path).Msgf("Removed a stray %s", r.cfg.displayName())
 		}
 	}
 }
@@ -315,6 +319,10 @@ func (r *runner) brewCmd(ctx context.Context, args ...string) *exec.Cmd {
 
 // binary returns the executable name to clean up, defaulting to the formula.
 func (c Config) binary() string { return cmp.Or(c.Binary, c.Formula) }
+
+// displayName is the human-facing name used in messages, defaulting to the
+// binary (and thus the formula) name when Name is unset.
+func (c Config) displayName() string { return cmp.Or(c.Name, c.binary()) }
 
 // formulaRef is the brew install target: tap-qualified when a tap is set.
 func (c Config) formulaRef() string {
