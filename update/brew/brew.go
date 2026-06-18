@@ -89,8 +89,7 @@ func Check(ctx context.Context, cfg Config) error {
 		return fmt.Errorf("check for updates: %w", err)
 	}
 	if !available {
-		clog.Info().Str("version", cfg.Info.VersionLink(clive.Current())).
-			Msgf("%s is up to date", cfg.Name)
+		upToDate(cfg.Name, cfg.Info, clive.Current())
 		return nil
 	}
 	latest, _ := cfg.Info.Latest(ctx)
@@ -210,10 +209,18 @@ func (r *runner) report(ctx context.Context) error {
 			Msgf("Updated %s", r.cfg.Name)
 		return nil
 	}
-	clog.Info().
-		Str("version", r.cfg.Info.VersionLink(cmp.Or(current, old))).
-		Msgf("%s is up to date", r.cfg.Name)
+	upToDate(r.cfg.Name, r.cfg.Info, cmp.Or(current, old))
 	return nil
+}
+
+// upToDate warns that no update was applied, including the version field only
+// when a version is known (a go-run build has none to show).
+func upToDate(name string, info clive.Info, ver string) {
+	e := clog.Warn()
+	if ver != "" {
+		e = e.Str("version", info.VersionLink(ver))
+	}
+	e.Msgf("%s is already up-to-date", name)
 }
 
 // installed reports whether brew already manages the formula.
