@@ -117,7 +117,7 @@ func Update(ctx context.Context, cfg Config, channel Channel) error {
 
 	if err := r.spin(
 		ctx,
-		fmt.Sprintf("Refreshing the %s formula", cfg.displayName()),
+		fmt.Sprintf("Fetching latest %s Homebrew formula", cfg.displayName()),
 		"update",
 		"--quiet",
 	); err != nil {
@@ -282,10 +282,13 @@ func (r *runner) cleanup(ctx context.Context) {
 	}
 }
 
-// spin runs a brew command under a spinner, surfacing brew's stderr on failure.
+// spin runs a brew command under a spinner: it logs a completion line on
+// success, and on failure returns brew's stderr (or the raw error) for the
+// caller to surface. The failure path uses Silent so the spinner does not log
+// its own error line, leaving the caller to report the failure exactly once.
 func (r *runner) spin(ctx context.Context, msg string, args ...string) error {
 	var stderr bytes.Buffer
-	err := clog.Spinner(msg).Elapsed("elapsed").Wait(ctx, func(ctx context.Context) error {
+	res := clog.Spinner(msg).Elapsed("elapsed").Wait(ctx, func(ctx context.Context) error {
 		cmd := r.brewCmd(ctx, args...)
 		if clog.IsVerbose() {
 			cmd.Stdout = os.Stdout
@@ -294,14 +297,14 @@ func (r *runner) spin(ctx context.Context, msg string, args ...string) error {
 			cmd.Stderr = &stderr
 		}
 		return cmd.Run()
-	}).Msg(msg)
-	if err != nil {
+	})
+	if err := res.Silent(); err != nil {
 		if detail := strings.TrimSpace(stderr.String()); detail != "" {
 			return errors.New(detail)
 		}
 		return err
 	}
-	return nil
+	return res.Msg(msg)
 }
 
 // brewSilent runs a best-effort brew command, ignoring its outcome (e.g. an
