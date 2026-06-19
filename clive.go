@@ -24,11 +24,11 @@ import (
 	"sync"
 	"time"
 
-	mmsemver "github.com/Masterminds/semver/v3"
 	ver "github.com/gechr/clive/version"
 	xansi "github.com/gechr/x/ansi"
 	"github.com/gechr/x/human"
 	"github.com/gechr/x/terminal"
+	goversion "github.com/hashicorp/go-version"
 )
 
 // Linker-injected build metadata. Set via -ldflags; left empty otherwise.
@@ -179,7 +179,7 @@ func (i Info) VersionLink(v string) string {
 		return hyperlink(linkURL, v)
 	}
 
-	if _, err := mmsemver.NewVersion(v); err == nil {
+	if _, err := goversion.NewVersion(v); err == nil {
 		linkURL, _ := url.JoinPath(
 			"https://github.com", repo, "releases", "tag", ver.AddPrefix(v),
 		)
@@ -213,11 +213,11 @@ func (i Info) UpdateAvailable(ctx context.Context) (bool, error) {
 // isNewer reports whether latestRaw is a strictly greater semver than currentRaw.
 // Returns false if either string cannot be parsed as a semver.
 func isNewer(currentRaw, latestRaw string) bool {
-	cur, err := mmsemver.NewVersion(currentRaw)
+	cur, err := goversion.NewVersion(currentRaw)
 	if err != nil {
 		return false
 	}
-	lat, err := mmsemver.NewVersion(latestRaw)
+	lat, err := goversion.NewVersion(latestRaw)
 	if err != nil {
 		return false
 	}

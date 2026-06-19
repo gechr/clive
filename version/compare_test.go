@@ -3,14 +3,14 @@ package version_test
 import (
 	"testing"
 
-	mmsemver "github.com/Masterminds/semver/v3"
 	"github.com/gechr/clive/version"
+	goversion "github.com/hashicorp/go-version"
 	"github.com/stretchr/testify/assert"
 )
 
-func mustParse(t *testing.T, s string) *mmsemver.Version {
+func mustParse(t *testing.T, s string) *goversion.Version {
 	t.Helper()
-	v, err := mmsemver.NewVersion(s)
+	v, err := goversion.NewVersion(s)
 	if err != nil {
 		t.Fatalf("parse %q: %v", s, err)
 	}

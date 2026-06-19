@@ -1,5 +1,5 @@
 // Package version provides version parsing helpers shared by clive
-// and its subpackages. It wraps Masterminds/semver with prefix stripping,
+// and its subpackages. It wraps hashicorp/go-version with prefix stripping,
 // dev-version detection, and natural-sort prerelease comparison.
 package version
 
@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/Masterminds/semver/v3"
+	goversion "github.com/hashicorp/go-version"
 )
 
 const (
@@ -38,22 +38,17 @@ func RemovePrefix(v string) string {
 	return v
 }
 
-// Parse normalizes and parses a version string into a semver.Version.
-// It strips a "v" prefix, drops anything after a "-g<hash>" git suffix,
-// and pads versions with fewer than three components ("1.2" -> "1.2.0").
-func Parse(v string) (*semver.Version, error) {
+// Parse normalizes and parses a version string into a [goversion.Version].
+// It strips a "v" prefix and drops anything after a "-g<hash>" git suffix;
+// go-version pads versions with fewer than three components ("1.2" -> "1.2.0").
+func Parse(v string) (*goversion.Version, error) {
 	v = RemovePrefix(v)
 
 	if idx := strings.Index(v, markerGit); idx > 0 {
 		v = v[:idx]
 	}
 
-	parts := strings.Split(v, ".")
-	for len(parts) < 3 {
-		parts = append(parts, "0")
-	}
-
-	return semver.NewVersion(strings.Join(parts, "."))
+	return goversion.NewVersion(v)
 }
 
 // IsDev reports whether v looks like a development build.
