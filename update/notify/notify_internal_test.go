@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/gechr/clive"
+	"github.com/gechr/clive/update/brew"
 	"github.com/stretchr/testify/require"
 )
 
@@ -39,7 +40,9 @@ func errTransport() http.RoundTripper {
 	})
 }
 
-func info() clive.Info { return clive.Info{Module: "github.com/me/myapp"} }
+func cfg() brew.Config {
+	return brew.Config{Info: clive.Info{Module: "github.com/me/myapp"}, Formula: "myapp"}
+}
 
 func TestNewer(t *testing.T) {
 	t.Parallel()
@@ -69,13 +72,17 @@ func TestNewer(t *testing.T) {
 
 func TestEnvVar(t *testing.T) {
 	t.Parallel()
-	require.Equal(t, "MYAPP_NO_UPDATE_CHECK", (&checker{name: "myapp"}).envVar())
+	require.Equal(
+		t,
+		"MYAPP_NO_UPDATE_CHECK",
+		(&checker{cfg: brew.Config{Formula: "myapp"}}).envVar(),
+	)
 }
 
 func TestReadWriteStamp(t *testing.T) {
 	t.Parallel()
 
-	c := newChecker(info(), "myapp", WithCacheDir(t.TempDir()))
+	c := newChecker(cfg(), WithCacheDir(t.TempDir()))
 	c.writeStamp("v3.1.4")
 
 	latest, when, cached := c.readStamp()
@@ -87,7 +94,7 @@ func TestReadWriteStamp(t *testing.T) {
 func TestReadStampMissing(t *testing.T) {
 	t.Parallel()
 
-	c := newChecker(info(), "myapp", WithCacheDir(t.TempDir()))
+	c := newChecker(cfg(), WithCacheDir(t.TempDir()))
 	_, _, cached := c.readStamp()
 	require.False(t, cached)
 }
@@ -95,7 +102,7 @@ func TestReadStampMissing(t *testing.T) {
 func TestRefreshWritesLatest(t *testing.T) {
 	t.Parallel()
 
-	c := newChecker(info(), "myapp", WithCacheDir(t.TempDir()), WithTransport(tagsTransport()))
+	c := newChecker(cfg(), WithCacheDir(t.TempDir()), WithTransport(tagsTransport()))
 	c.refresh()
 
 	latest, _, cached := c.readStamp()
@@ -107,9 +114,9 @@ func TestRefreshThrottlesOnError(t *testing.T) {
 	t.Parallel()
 
 	dir := t.TempDir()
-	newChecker(info(), "myapp", WithCacheDir(dir)).writeStamp("v1.0.0")
+	newChecker(cfg(), WithCacheDir(dir)).writeStamp("v1.0.0")
 
-	c := newChecker(info(), "myapp", WithCacheDir(dir), WithTransport(errTransport()))
+	c := newChecker(cfg(), WithCacheDir(dir), WithTransport(errTransport()))
 	c.refresh()
 
 	latest, when, cached := c.readStamp()
@@ -121,7 +128,7 @@ func TestRefreshThrottlesOnError(t *testing.T) {
 func TestShouldHintWhenBehind(t *testing.T) {
 	t.Parallel()
 
-	c := newChecker(info(), "myapp", WithCacheDir(t.TempDir()), WithCurrentVersion("v1.0.0"))
+	c := newChecker(cfg(), WithCacheDir(t.TempDir()), WithCurrentVersion("v1.0.0"))
 	c.writeStamp("v1.2.0")
 
 	latest, ok := c.shouldHint()
@@ -132,7 +139,7 @@ func TestShouldHintWhenBehind(t *testing.T) {
 func TestShouldHintWhenUpToDate(t *testing.T) {
 	t.Parallel()
 
-	c := newChecker(info(), "myapp", WithCacheDir(t.TempDir()), WithCurrentVersion("v1.2.0"))
+	c := newChecker(cfg(), WithCacheDir(t.TempDir()), WithCurrentVersion("v1.2.0"))
 	c.writeStamp("v1.2.0")
 
 	_, ok := c.shouldHint()
@@ -144,7 +151,7 @@ func TestShouldHintRereadsCache(t *testing.T) {
 
 	// A refresh that lands mid-command updates the cache; because the flush
 	// re-reads it, the newer result is shown that same run.
-	c := newChecker(info(), "myapp", WithCacheDir(t.TempDir()), WithCurrentVersion("v1.0.0"))
+	c := newChecker(cfg(), WithCacheDir(t.TempDir()), WithCurrentVersion("v1.0.0"))
 	c.writeStamp("v1.0.0")
 	_, ok := c.shouldHint()
 	require.False(t, ok, "nothing newer in the cache yet")

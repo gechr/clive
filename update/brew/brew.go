@@ -90,14 +90,14 @@ func Check(ctx context.Context, cfg Config) error {
 		return fmt.Errorf("check for updates: %w", err)
 	}
 	if !available {
-		upToDate(cfg.displayName(), cfg.Info, clive.Current())
+		upToDate(cfg.DisplayName(), cfg.Info, clive.Current())
 		return nil
 	}
 	latest, _ := cfg.Info.Latest(ctx)
 	clog.Info().
 		Str("current", cfg.Info.VersionLink(clive.Current())).
 		Str("latest", cfg.Info.VersionLink(latest)).
-		Msgf("An update is available; run `%s update`", cfg.displayName())
+		Msgf("An update is available; run `%s update`", cfg.DisplayName())
 	return nil
 }
 
@@ -110,14 +110,14 @@ func Update(ctx context.Context, cfg Config, channel Channel) error {
 	if err != nil {
 		return fmt.Errorf(
 			"updating %s needs Homebrew; install it from https://brew.sh",
-			cfg.displayName(),
+			cfg.DisplayName(),
 		)
 	}
 	r := &runner{cfg: cfg, brew: brew, current: clive.Current()}
 
 	if err := r.spin(
 		ctx,
-		fmt.Sprintf("Fetching latest %s Homebrew formula", cfg.displayName()),
+		fmt.Sprintf("Fetching latest %s Homebrew formula", cfg.DisplayName()),
 		"update",
 		"--quiet",
 	); err != nil {
@@ -152,7 +152,7 @@ func (r *runner) upgrade(ctx context.Context) error {
 		args = append(args, "--fetch-HEAD")
 	}
 	args = append(args, r.cfg.Formula)
-	if err := r.spin(ctx, fmt.Sprintf("Upgrading %s", r.cfg.displayName()), args...); err != nil {
+	if err := r.spin(ctx, fmt.Sprintf("Upgrading %s", r.cfg.DisplayName()), args...); err != nil {
 		return err
 	}
 	r.cleanup(ctx)
@@ -183,7 +183,7 @@ func (r *runner) install(ctx context.Context, head bool) error {
 	if head {
 		verb = "Compiling"
 	}
-	if err := r.spin(ctx, fmt.Sprintf("%s %s", verb, r.cfg.displayName()), args...); err != nil {
+	if err := r.spin(ctx, fmt.Sprintf("%s %s", verb, r.cfg.DisplayName()), args...); err != nil {
 		return err
 	}
 	r.cleanup(ctx)
@@ -209,10 +209,10 @@ func (r *runner) report(ctx context.Context) error {
 		clog.Info().
 			Str("old", r.cfg.Info.VersionLink(old)).
 			Str("new", r.cfg.Info.VersionLink(current)).
-			Msgf("Updated %s", r.cfg.displayName())
+			Msgf("Updated %s", r.cfg.DisplayName())
 		return nil
 	}
-	upToDate(r.cfg.displayName(), r.cfg.Info, cmp.Or(current, old))
+	upToDate(r.cfg.DisplayName(), r.cfg.Info, cmp.Or(current, old))
 	return nil
 }
 
@@ -262,7 +262,7 @@ func (r *runner) cleanup(ctx context.Context) {
 		if dir == "" || dir == brewBin {
 			continue
 		}
-		path := dir + string(os.PathSeparator) + r.cfg.binary()
+		path := dir + string(os.PathSeparator) + r.cfg.BinaryName()
 		info, err := os.Lstat(path)
 		if err != nil {
 			continue
@@ -277,9 +277,11 @@ func (r *runner) cleanup(ctx context.Context) {
 			clog.Warn().
 				Str("path", path).
 				Err(err).
-				Msgf("Could not remove a stray %s", r.cfg.displayName())
+				Msgf("Could not remove a stray %s installation", r.cfg.DisplayName())
 		} else {
-			clog.Info().Str("path", path).Msgf("Removed a stray %s", r.cfg.displayName())
+			clog.Info().
+				Str("path", path).
+				Msgf("Removed a stray %s installation", r.cfg.DisplayName())
 		}
 	}
 }
@@ -332,12 +334,14 @@ func (r *runner) brewCmd(ctx context.Context, args ...string) *exec.Cmd {
 	return cmd
 }
 
-// binary returns the executable name to clean up, defaulting to the formula.
-func (c Config) binary() string { return cmp.Or(c.Binary, c.Formula) }
+// BinaryName is the executable/command name, defaulting to the formula. Shared
+// by other update mechanisms (the periodic check) that name the `<binary>
+// update` command.
+func (c Config) BinaryName() string { return cmp.Or(c.Binary, c.Formula) }
 
-// displayName is the human-facing name used in messages, defaulting to the
+// DisplayName is the human-facing name used in messages, defaulting to the
 // binary (and thus the formula) name when Name is unset.
-func (c Config) displayName() string { return cmp.Or(c.Name, c.binary()) }
+func (c Config) DisplayName() string { return cmp.Or(c.Name, c.BinaryName()) }
 
 // formulaRef is the brew install target: tap-qualified when a tap is set.
 func (c Config) formulaRef() string {

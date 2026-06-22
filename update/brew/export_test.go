@@ -4,5 +4,4 @@ package brew
 
 var HeadBuild = headBuild
 
-func (c Config) BinaryName() string { return c.binary() }
 func (c Config) FormulaRef() string { return c.formulaRef() }
