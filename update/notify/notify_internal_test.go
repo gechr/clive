@@ -1,11 +1,8 @@
 package notify
 
 import (
-	"context"
 	"io"
 	"net/http"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -19,20 +16,26 @@ type roundTripFunc func(*http.Request) (*http.Response, error)
 
 func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
 
-// tagsTransport serves a single tag, v1.2.0, recording each request through
-// count (when non-nil) so a test can assert a skipped check never hit the
-// network.
-func tagsTransport(count *int) http.RoundTripper {
+func response(status int, body string) *http.Response {
+	return &http.Response{
+		StatusCode: status,
+		Status:     http.StatusText(status),
+		Body:       io.NopCloser(strings.NewReader(body)),
+		Header:     make(http.Header),
+	}
+}
+
+// tagsTransport serves a single tag, v1.2.0.
+func tagsTransport() http.RoundTripper {
 	return roundTripFunc(func(*http.Request) (*http.Response, error) {
-		if count != nil {
-			*count++
-		}
-		return &http.Response{
-			StatusCode: http.StatusOK,
-			Status:     "200 OK",
-			Body:       io.NopCloser(strings.NewReader(`[{"name":"v1.2.0"}]`)),
-			Header:     make(http.Header),
-		}, nil
+		return response(http.StatusOK, `[{"name":"v1.2.0"}]`), nil
+	})
+}
+
+// errTransport always answers with a server error.
+func errTransport() http.RoundTripper {
+	return roundTripFunc(func(*http.Request) (*http.Response, error) {
+		return response(http.StatusInternalServerError, ""), nil
 	})
 }
 
@@ -69,99 +72,85 @@ func TestEnvVar(t *testing.T) {
 	require.Equal(t, "MYAPP_NO_UPDATE_CHECK", (&checker{name: "myapp"}).envVar())
 }
 
-func TestEvaluateReportsNewer(t *testing.T) {
-	t.Setenv("MYAPP_NO_UPDATE_CHECK", "")
+func TestReadWriteStamp(t *testing.T) {
+	t.Parallel()
 
-	c := newChecker(info(), "myapp",
-		WithCacheDir(t.TempDir()),
-		WithCurrentVersion("v1.0.0"),
-		WithTransport(tagsTransport(nil)),
-	)
+	c := newChecker(info(), "myapp", WithCacheDir(t.TempDir()))
+	c.writeStamp("v3.1.4")
 
-	latest, ok := c.evaluate(context.Background())
+	latest, when, cached := c.readStamp()
+	require.True(t, cached)
+	require.Equal(t, "v3.1.4", latest)
+	require.WithinDuration(t, time.Now(), when, time.Minute)
+}
+
+func TestReadStampMissing(t *testing.T) {
+	t.Parallel()
+
+	c := newChecker(info(), "myapp", WithCacheDir(t.TempDir()))
+	_, _, cached := c.readStamp()
+	require.False(t, cached)
+}
+
+func TestRefreshWritesLatest(t *testing.T) {
+	t.Parallel()
+
+	c := newChecker(info(), "myapp", WithCacheDir(t.TempDir()), WithTransport(tagsTransport()))
+	c.refresh()
+
+	latest, _, cached := c.readStamp()
+	require.True(t, cached)
+	require.Equal(t, "v1.2.0", latest)
+}
+
+func TestRefreshThrottlesOnError(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	newChecker(info(), "myapp", WithCacheDir(dir)).writeStamp("v1.0.0")
+
+	c := newChecker(info(), "myapp", WithCacheDir(dir), WithTransport(errTransport()))
+	c.refresh()
+
+	latest, when, cached := c.readStamp()
+	require.True(t, cached)
+	require.Equal(t, "v1.0.0", latest, "a failed refresh preserves the prior value")
+	require.WithinDuration(t, time.Now(), when, time.Minute, "and re-stamps to honour the cooldown")
+}
+
+func TestShouldHintWhenBehind(t *testing.T) {
+	t.Parallel()
+
+	c := newChecker(info(), "myapp", WithCacheDir(t.TempDir()), WithCurrentVersion("v1.0.0"))
+	c.writeStamp("v1.2.0")
+
+	latest, ok := c.shouldHint()
 	require.True(t, ok)
 	require.Equal(t, "v1.2.0", latest)
 }
 
-func TestEvaluateSilentWhenUpToDate(t *testing.T) {
-	t.Setenv("MYAPP_NO_UPDATE_CHECK", "")
+func TestShouldHintWhenUpToDate(t *testing.T) {
+	t.Parallel()
 
-	c := newChecker(info(), "myapp",
-		WithCacheDir(t.TempDir()),
-		WithCurrentVersion("v1.2.0"),
-		WithTransport(tagsTransport(nil)),
-	)
+	c := newChecker(info(), "myapp", WithCacheDir(t.TempDir()), WithCurrentVersion("v1.2.0"))
+	c.writeStamp("v1.2.0")
 
-	_, ok := c.evaluate(context.Background())
+	_, ok := c.shouldHint()
 	require.False(t, ok)
 }
 
-func TestEvaluateDisabledByEnv(t *testing.T) {
-	t.Setenv("MYAPP_NO_UPDATE_CHECK", "1")
+func TestShouldHintRereadsCache(t *testing.T) {
+	t.Parallel()
 
-	calls := 0
-	c := newChecker(info(), "myapp",
-		WithCacheDir(t.TempDir()),
-		WithCurrentVersion("v1.0.0"),
-		WithTransport(tagsTransport(&calls)),
-	)
+	// A refresh that lands mid-command updates the cache; because the flush
+	// re-reads it, the newer result is shown that same run.
+	c := newChecker(info(), "myapp", WithCacheDir(t.TempDir()), WithCurrentVersion("v1.0.0"))
+	c.writeStamp("v1.0.0")
+	_, ok := c.shouldHint()
+	require.False(t, ok, "nothing newer in the cache yet")
 
-	_, ok := c.evaluate(context.Background())
-	require.False(t, ok)
-	require.Zero(t, calls, "a disabled check must not hit the network")
-}
-
-func TestEvaluateRespectsCooldown(t *testing.T) {
-	t.Setenv("MYAPP_NO_UPDATE_CHECK", "")
-
-	dir := t.TempDir()
-	// A fresh stamp means a check happened within the cooldown window.
-	require.NoError(t, os.WriteFile(filepath.Join(dir, stampName), nil, stampPerm))
-
-	calls := 0
-	c := newChecker(info(), "myapp",
-		WithCacheDir(dir),
-		WithCurrentVersion("v1.0.0"),
-		WithTransport(tagsTransport(&calls)),
-	)
-
-	_, ok := c.evaluate(context.Background())
-	require.False(t, ok)
-	require.Zero(t, calls, "a check within the cooldown must not hit the network")
-}
-
-func TestEvaluateChecksAfterCooldown(t *testing.T) {
-	t.Setenv("MYAPP_NO_UPDATE_CHECK", "")
-
-	dir := t.TempDir()
-	stamp := filepath.Join(dir, stampName)
-	require.NoError(t, os.WriteFile(stamp, nil, stampPerm))
-	stale := time.Now().Add(-cooldown - time.Hour)
-	require.NoError(t, os.Chtimes(stamp, stale, stale))
-
-	c := newChecker(info(), "myapp",
-		WithCacheDir(dir),
-		WithCurrentVersion("v1.0.0"),
-		WithTransport(tagsTransport(nil)),
-	)
-
-	latest, ok := c.evaluate(context.Background())
+	c.writeStamp("v2.0.0") // the background refresh completes
+	latest, ok := c.shouldHint()
 	require.True(t, ok)
-	require.Equal(t, "v1.2.0", latest)
-}
-
-func TestEvaluateStampsBeforeFetch(t *testing.T) {
-	t.Setenv("MYAPP_NO_UPDATE_CHECK", "")
-
-	dir := t.TempDir()
-	c := newChecker(info(), "myapp",
-		WithCacheDir(dir),
-		WithCurrentVersion("v1.0.0"),
-		WithTransport(tagsTransport(nil)),
-	)
-
-	_, _ = c.evaluate(context.Background())
-
-	_, err := os.Stat(filepath.Join(dir, stampName))
-	require.NoError(t, err, "evaluate must write the cooldown stamp")
+	require.Equal(t, "v2.0.0", latest)
 }

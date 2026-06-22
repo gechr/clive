@@ -1,15 +1,21 @@
-// Package notify performs a passive, rate-limited "you're behind" check for a
-// Go CLI and prints a one-line hint when a newer GitHub release exists. It is
-// advisory only: every failure path (no network, throttled, unparseable
-// version) is swallowed so the check never disrupts the command the user ran.
+// Package notify performs a passive, never-blocking "you're behind" check for a
+// Go CLI and prints a one-line hint when a newer GitHub release exists.
 //
-// A tool calls [Check] once after a command completes:
+// The hint is served from a small cache file - an instant disk read, never the
+// network - so it adds no latency to the command. When that cache is stale, a
+// background goroutine refreshes it; the refresh is never awaited, so it
+// overlaps the caller's work and is abandoned at process exit if still running.
+// The flush re-reads the cache, so a refresh that finishes while the command
+// runs is shown that same run; otherwise its result appears on the next
+// invocation. A tool calls [Check] before dispatching its command and invokes
+// the returned flush function after:
 //
-//	notify.Check(ctx, clive.Info{Module: "github.com/me/myapp"}, "myapp")
+//	flush := notify.Check(clive.Info{Module: "github.com/me/myapp"}, "myapp")
+//	defer flush()
 //
 // The check is silenced by the per-tool kill switch MYAPP_NO_UPDATE_CHECK
-// (derived from the name), and at most one network request is made per cooldown,
-// tracked by a stamp file under the user cache directory.
+// (derived from the name) and by a non-terminal stderr, and the network is
+// touched at most once per cooldown.
 package notify
 
 import (
@@ -25,23 +31,25 @@ import (
 	"github.com/gechr/clog"
 	xos "github.com/gechr/x/os"
 	"github.com/gechr/x/shell"
+	"github.com/gechr/x/terminal"
 )
 
 const (
-	// cooldown is the minimum gap between checks. Each check touches a stamp file,
-	// so however often the CLI runs, the network is hit at most once per cooldown.
+	// cooldown is the minimum gap between network refreshes. The cache mtime
+	// records the last refresh, so the network is hit at most once per cooldown.
 	cooldown = 24 * time.Hour
 
-	// lookupTimeout bounds the tag fetch so a slow network never delays the CLI.
+	// lookupTimeout bounds the background tag fetch.
 	lookupTimeout = 2 * time.Second
 
-	// stampPerm is the mode of the cooldown stamp file.
+	// stampPerm is the mode of the cache file.
 	stampPerm = 0o644
 
 	// dirPerm is the mode of the per-tool cache directory.
 	dirPerm = 0o755
 
-	// stampName is the cooldown marker stored under the per-tool cache directory.
+	// stampName is the cache file under the per-tool cache directory. Its content
+	// is the latest known tag; its mtime is when that was last refreshed.
 	stampName = "last-update-check"
 
 	// envSuffix is appended to the upper-cased tool name to form the kill switch:
@@ -49,23 +57,24 @@ const (
 	envSuffix = "_NO_UPDATE_CHECK"
 )
 
-// Check runs a best-effort, rate-limited check for a newer GitHub release of
-// info's repository and prints a hint when the running binary is behind. name is
-// the binary/command, such as "myapp": it forms the kill-switch env var, the
-// cache namespace, and the `<name> update` command shown in the hint. All
-// failures are silent; a debug log records why a check was skipped.
-func Check(ctx context.Context, info clive.Info, name string, opts ...Option) {
+// Check serves an "update available" hint from the per-tool cache and, when that
+// cache is stale, refreshes it in the background for the next invocation. It
+// never blocks and never touches the network on the calling path. name is the
+// binary/command, such as "myapp": it forms the kill-switch env var, the cache
+// namespace, and the `<name> update` command shown in the hint.
+//
+// The returned function prints the hint; the caller invokes it after its command
+// completes, so the hint follows the command's own output. It is a no-op when no
+// update is pending, when the check is disabled, or when stderr is not a
+// terminal.
+func Check(info clive.Info, name string, opts ...Option) func() {
 	c := newChecker(info, name, opts...)
 
-	latest, ok := c.evaluate(ctx)
-	if !ok {
-		return
+	if os.Getenv(c.envVar()) != "" || !terminal.Is(os.Stderr) {
+		return func() {}
 	}
 
-	clog.Hint().
-		Str("installed", c.info.VersionLink(c.current)).
-		Str("latest", c.info.VersionLink(latest)).
-		Msgf("A newer %s release is available; run `%s update`", c.name, c.name)
+	return c.hint()
 }
 
 // Option configures a [Check]. The defaults target a real run; the seams exist
@@ -84,8 +93,7 @@ func WithTransport(rt http.RoundTripper) Option {
 	return func(c *checker) { c.client.Transport = rt }
 }
 
-// WithCacheDir overrides the directory holding the cooldown stamp file. An empty
-// dir disables the cooldown (every call checks), which tests rely on.
+// WithCacheDir overrides the directory holding the cache file.
 func WithCacheDir(dir string) Option {
 	return func(c *checker) { c.cacheDir = dir }
 }
@@ -114,37 +122,82 @@ func newChecker(info clive.Info, name string, opts ...Option) *checker {
 	return c
 }
 
-// evaluate reports the latest version and whether to hint about it. It returns
-// ok=false - silently - when the check is disabled, still in cooldown, fails, or
-// finds nothing newer.
-func (c *checker) evaluate(ctx context.Context) (string, bool) {
-	if os.Getenv(c.envVar()) != "" {
+// hint schedules a background refresh when the cache is missing or stale and
+// returns a function that prints the "update available" line. The returned
+// function re-reads the cache when invoked, so a refresh that completes while
+// the command runs is reflected this run; otherwise the result appears on the
+// next invocation. It performs no network I/O on the calling path.
+func (c *checker) hint() func() {
+	_, checkedAt, cached := c.readStamp()
+
+	if !cached || time.Since(checkedAt) >= cooldown {
+		go c.refresh()
+	}
+
+	return func() {
+		if latest, ok := c.shouldHint(); ok {
+			printHint(c.info, c.name, c.current, latest)
+		}
+	}
+}
+
+// shouldHint reports the latest cached tag and whether it is newer than the
+// running build. It re-reads the cache, so a background refresh that has since
+// completed is taken into account.
+func (c *checker) shouldHint() (string, bool) {
+	latest, _, cached := c.readStamp()
+	if !cached || c.current == "" {
 		return "", false
 	}
-	if !c.due() {
-		return "", false
-	}
+	return latest, newer(c.current, latest)
+}
 
-	// Stamp before fetching so a failing check still starts the cooldown, rather
-	// than retrying the network on every invocation.
-	c.stamp()
-
-	if c.current == "" {
-		return "", false // a `go run` build has no version to compare
-	}
-
-	ctx, cancel := context.WithTimeout(ctx, lookupTimeout)
+// refresh fetches the latest tag and rewrites the cache. On failure it re-stamps
+// the prior value, so a failing check still respects the cooldown instead of
+// refetching on every invocation. It is meant to run in its own goroutine.
+func (c *checker) refresh() {
+	ctx, cancel := context.WithTimeout(context.Background(), lookupTimeout)
 	defer cancel()
 
 	latest, err := c.info.LatestTag(ctx, c.client)
 	if err != nil {
 		clog.Debug().Err(err).Msg("Update check failed")
-		return "", false
+		prev, _, _ := c.readStamp()
+		c.writeStamp(prev)
+		return
 	}
-	if latest == "" || !newer(c.current, latest) {
-		return "", false
+	c.writeStamp(latest)
+}
+
+// readStamp returns the cached latest tag and when it was written. cached is
+// false on the first run or when no cache directory is available.
+func (c *checker) readStamp() (string, time.Time, bool) {
+	if c.cacheDir == "" {
+		return "", time.Time{}, false
 	}
-	return latest, true
+	path := filepath.Join(c.cacheDir, stampName)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", time.Time{}, false
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		return "", time.Time{}, false
+	}
+	return strings.TrimSpace(string(data)), info.ModTime(), true
+}
+
+// writeStamp records latest as the cache content, stamping the file's mtime to
+// now. Failures are ignored: a check that cannot persist simply runs again next
+// time, which is harmless.
+func (c *checker) writeStamp(latest string) {
+	if c.cacheDir == "" {
+		return
+	}
+	if err := xos.EnsureDir(c.cacheDir, dirPerm); err != nil {
+		return
+	}
+	_ = xos.AtomicWrite(filepath.Join(c.cacheDir, stampName), []byte(latest), stampPerm)
 }
 
 // envVar is the per-tool kill switch, such as "MYAPP_NO_UPDATE_CHECK".
@@ -152,33 +205,15 @@ func (c *checker) envVar() string {
 	return strings.ToUpper(c.name) + envSuffix
 }
 
-// due reports whether enough time has elapsed since the last check. A missing or
-// unreadable stamp (first run, no cache dir) is treated as due.
-func (c *checker) due() bool {
-	if c.cacheDir == "" {
-		return true
-	}
-	info, err := os.Stat(filepath.Join(c.cacheDir, stampName))
-	if err != nil {
-		return true
-	}
-	return time.Since(info.ModTime()) >= cooldown
+// printHint logs the one-line "update available" hint.
+func printHint(info clive.Info, name, current, latest string) {
+	clog.Hint().
+		Str("installed", info.VersionLink(current)).
+		Str("latest", info.VersionLink(latest)).
+		Msgf("A newer %s release is available; run `%s update`", name, name)
 }
 
-// stamp records "checked now" by (re)writing the stamp file, whose mtime the
-// next due check reads. Failures are ignored: a check that cannot persist its
-// cooldown simply runs again next time, which is harmless.
-func (c *checker) stamp() {
-	if c.cacheDir == "" {
-		return
-	}
-	if err := xos.EnsureDir(c.cacheDir, dirPerm); err != nil {
-		return
-	}
-	_ = xos.AtomicWrite(filepath.Join(c.cacheDir, stampName), nil, stampPerm)
-}
-
-// defaultCacheDir namespaces the stamp file under the user cache directory
+// defaultCacheDir namespaces the cache file under the user cache directory
 // ($XDG_CACHE_HOME or ~/.cache) by tool name.
 func defaultCacheDir(name string) string {
 	dir, err := shell.CacheDir()
