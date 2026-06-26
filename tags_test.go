@@ -41,10 +41,7 @@ func TestLatestTagPicksHighestSemver(t *testing.T) {
 
 	got, err := clive.Info{
 		Module: "github.com/gechr/clover",
-	}.LatestTag(
-		context.Background(),
-		client,
-	)
+	}.LatestTag(context.Background(), client)
 	require.NoError(t, err)
 	require.Equal(t, "v1.10.0", got, "natural order ranks 1.10 above 1.9")
 }

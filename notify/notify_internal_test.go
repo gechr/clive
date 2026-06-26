@@ -46,8 +46,7 @@ func errTransport() http.RoundTripper {
 
 func cfg() brew.Config {
 	return brew.Config{
-		Info:    clive.Info{Module: "github.com/example/myapp"},
-		Formula: "myapp",
+		Info: clive.Info{Module: "github.com/example/myapp"}, Formula: "myapp",
 	}
 }
 
@@ -64,7 +63,12 @@ func TestNewer(t *testing.T) {
 		latest  string
 		want    bool
 	}{
-		{"patch behind", "v1.0.0", "v1.0.1", true},
+		{
+			"patch behind",
+			"v1.0.0",
+			"v1.0.1",
+			true,
+		},
 		{"equal", "v1.2.0", "v1.2.0", false},
 		{"ahead", "v2.0.0", "v1.9.9", false},
 		{"natural order", "v1.9.0", "v1.10.0", true},
@@ -126,9 +130,11 @@ func TestRefreshWritesLatest(t *testing.T) {
 func TestRefreshUsesLatestFunc(t *testing.T) {
 	t.Parallel()
 
-	c := newChecker(cfg(), WithCacheDir(t.TempDir()), WithLatestFunc(
-		func(context.Context) (string, error) { return "v9.9.9", nil },
-	))
+	c := newChecker(
+		cfg(),
+		WithCacheDir(t.TempDir()),
+		WithLatestFunc(func(context.Context) (string, error) { return "v9.9.9", nil }),
+	)
 	c.refresh()
 
 	st, _, cached := c.readStamp()
@@ -312,7 +318,9 @@ func TestPendingSharesHintVerdictAndFields(t *testing.T) {
 	dir := t.TempDir()
 	display := func(ref string) string { return strings.TrimPrefix(ref, "v") }
 	opts := []Option{
-		WithCacheDir(dir),
+		WithCacheDir(
+			dir,
+		),
 		WithCurrentVersion("v1.0.0"),
 		WithChannel("stable"),
 		WithRefDisplay(display),
@@ -347,11 +355,7 @@ func TestPendingWithNoTerminalAndKillSwitch(t *testing.T) {
 	defer func() { os.Stderr = stderr }()
 	os.Stderr = f
 
-	res, pending := Pending(
-		cfg(),
-		WithCacheDir(dir),
-		WithCurrentVersion("v1.0.0"),
-	)
+	res, pending := Pending(cfg(), WithCacheDir(dir), WithCurrentVersion("v1.0.0"))
 	require.True(t, pending)
 	require.Equal(t, "v1.2.0", res.LatestRef)
 
@@ -423,10 +427,7 @@ func TestSkipSuppressesUntilDifferentRef(t *testing.T) {
 		comparator func(string, string) bool
 	}{
 		{
-			name:    "semver",
-			current: "v1.0.0",
-			skipped: "v1.2.0",
-			next:    "v1.3.0",
+			name: "semver", current: "v1.0.0", skipped: "v1.2.0", next: "v1.3.0",
 		},
 		{
 			name:       "opaque ref",
@@ -468,11 +469,10 @@ func TestOldFormatCacheReadsCleanly(t *testing.T) {
 	t.Parallel()
 
 	dir := t.TempDir()
-	require.NoError(t, os.WriteFile(
-		filepath.Join(dir, refreshStampName),
-		[]byte("v2.0.0\n"),
-		stampPerm,
-	))
+	require.NoError(
+		t,
+		os.WriteFile(filepath.Join(dir, refreshStampName), []byte("v2.0.0\n"), stampPerm),
+	)
 
 	c := newChecker(cfg(), WithCacheDir(dir))
 	st, _, cached := c.readStamp()
@@ -518,9 +518,7 @@ func TestCustomComparatorGovernsHintPendingAndResurface(t *testing.T) {
 
 	dir := t.TempDir()
 	opts := []Option{
-		WithCacheDir(dir),
-		WithCurrentVersion("alpha"),
-		WithComparator(differentRef),
+		WithCacheDir(dir), WithCurrentVersion("alpha"), WithComparator(differentRef),
 	}
 	c := newChecker(cfg(), opts...)
 
@@ -564,7 +562,9 @@ func TestRefDisplayAppliesToPendingAndHintFields(t *testing.T) {
 		return ref
 	}
 	opts := []Option{
-		WithCacheDir(dir),
+		WithCacheDir(
+			dir,
+		),
 		WithCurrentVersion("111111111111"),
 		WithComparator(differentRef),
 		WithRefDisplay(display),
@@ -594,7 +594,9 @@ func TestTrackSwitchDoesNotCompareOtherTrackCache(t *testing.T) {
 	started := make(chan struct{})
 	release := make(chan struct{})
 	opts := []Option{
-		WithCacheDir(dir),
+		WithCacheDir(
+			dir,
+		),
 		WithCurrentVersion("v1.0.0"),
 		WithChannel("rolling"),
 		WithLatestFunc(func(context.Context) (string, error) {

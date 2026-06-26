@@ -48,8 +48,12 @@ func TestBinaryName(t *testing.T) {
 	t.Parallel()
 
 	require.Equal(t, "clive", Config{Binary: "clive"}.BinaryName(), "explicit binary wins")
-	require.Equal(t, "clover", Config{Info: clive.Info{Repo: "gechr/clover"}}.BinaryName(),
-		"defaults to the repo name")
+	require.Equal(
+		t,
+		"clover",
+		Config{Info: clive.Info{Repo: "gechr/clover"}}.BinaryName(),
+		"defaults to the repo name",
+	)
 	require.Equal(
 		t,
 		"myapp",
@@ -89,8 +93,30 @@ func TestRepo(t *testing.T) {
 func TestResolveTokenEnvOverride(t *testing.T) {
 	// Not parallel: mutates the environment.
 	t.Setenv("CLIVE_TEST_TOKEN", "from-env")
-	require.Equal(t, "from-env", resolveToken(Config{TokenEnv: "CLIVE_TEST_TOKEN"}),
-		"the configured env var beats any gh credential")
+	require.Equal(
+		t,
+		"from-env",
+		resolveToken(Config{TokenEnv: "CLIVE_TEST_TOKEN"}),
+		"the configured env var beats any gh credential",
+	)
+}
+
+func TestTokenHost(t *testing.T) {
+	t.Parallel()
+
+	require.Equal(t, "github.com", tokenHost(Config{}), "defaults to github.com")
+	require.Equal(
+		t,
+		"ghe.example.com",
+		tokenHost(Config{EnterpriseURL: "https://ghe.example.com/api/v3/"}),
+		"derives the host from an Enterprise API URL",
+	)
+	require.Equal(
+		t,
+		"github.com",
+		tokenHost(Config{EnterpriseURL: "://bad"}),
+		"falls back to github.com when the URL has no host",
+	)
 }
 
 func TestIsNewer(t *testing.T) {
@@ -106,8 +132,11 @@ func TestIsNewer(t *testing.T) {
 func TestCheckUpToDateWhenNotFound(t *testing.T) {
 	// Not parallel: stubs the package-level resolve seam.
 	withResolve(t, notFound)
-	require.NoError(t, Check(context.Background(), Config{Info: clive.Info{Repo: "gechr/clive"}}),
-		"no release found reports up-to-date, not an error")
+	require.NoError(
+		t,
+		Check(context.Background(), Config{Info: clive.Info{Repo: "gechr/clive"}}),
+		"no release found reports up-to-date, not an error",
+	)
 }
 
 func TestCheckPropagatesError(t *testing.T) {
@@ -128,9 +157,11 @@ func TestUpdateNoOpWhenNotFound(t *testing.T) {
 	// Not parallel: stubs the package-level resolve and currentVersion seams.
 	withCurrent(t, "v1.0.0")
 	withResolve(t, notFound)
-	require.NoError(t, Update(context.Background(),
-		Config{Info: clive.Info{Repo: "gechr/clive"}}, Latest),
-		"no release found is a clean no-op")
+	require.NoError(
+		t,
+		Update(context.Background(), Config{Info: clive.Info{Repo: "gechr/clive"}}, Latest),
+		"no release found is a clean no-op",
+	)
 }
 
 func TestLatestRefNotFound(t *testing.T) {

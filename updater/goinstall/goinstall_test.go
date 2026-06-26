@@ -39,19 +39,22 @@ func TestInstallTarget(t *testing.T) {
 	t.Parallel()
 
 	cfg := goinstall.Config{Info: clive.Info{Module: "github.com/owner/example"}}
-	require.Equal(t,
+	require.Equal(
+		t,
 		"github.com/owner/example@latest",
 		cfg.InstallTarget(goinstall.Latest),
 		"the stable channel installs @latest",
 	)
-	require.Equal(t,
+	require.Equal(
+		t,
 		"github.com/owner/example@main",
 		cfg.InstallTarget(goinstall.Dev),
 		"the dev channel defaults to @main",
 	)
 
 	cfg.Branch = "develop"
-	require.Equal(t,
+	require.Equal(
+		t,
 		"github.com/owner/example@develop",
 		cfg.InstallTarget(goinstall.Dev),
 		"an explicit branch is honoured",
@@ -65,10 +68,17 @@ func TestModuleVersion(t *testing.T) {
 		"\tpath\tgithub.com/owner/example\n" +
 		"\tmod\tgithub.com/owner/example\tv0.32.0\th1:abc=\n" +
 		"\tdep\tgithub.com/spf13/cobra\tv1.8.0\th1:def=\n"
-	require.Equal(t, "v0.32.0", goinstall.ModuleVersion([]byte(out)),
-		"the mod line carries the main module's version")
+	require.Equal(
+		t,
+		"v0.32.0",
+		goinstall.ModuleVersion([]byte(out)),
+		"the mod line carries the main module's version",
+	)
 
-	require.Empty(t, goinstall.ModuleVersion([]byte("example: go1.26.2\n")),
-		"a binary without module info reports no version")
+	require.Empty(
+		t,
+		goinstall.ModuleVersion([]byte("example: go1.26.2\n")),
+		"a binary without module info reports no version",
+	)
 	require.Empty(t, goinstall.ModuleVersion(nil))
 }

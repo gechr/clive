@@ -21,11 +21,18 @@ func TestLinkedKeg(t *testing.T) {
 
 	const multi = `{"formulae":[{"linked_keg":"0.32.0",` +
 		`"installed":[{"version":"0.31.7"},{"version":"0.32.0"}]}]}`
-	require.Equal(t, "0.32.0", brew.LinkedKeg([]byte(multi)),
-		"the linked keg wins over the arbitrary order of installed kegs")
+	require.Equal(
+		t,
+		"0.32.0",
+		brew.LinkedKeg([]byte(multi)),
+		"the linked keg wins over the arbitrary order of installed kegs",
+	)
 
-	require.Empty(t, brew.LinkedKeg([]byte(`{"formulae":[{"linked_keg":""}]}`)),
-		"an unlinked formula reports no version")
+	require.Empty(
+		t,
+		brew.LinkedKeg([]byte(`{"formulae":[{"linked_keg":""}]}`)),
+		"an unlinked formula reports no version",
+	)
 	require.Empty(t, brew.LinkedKeg([]byte(`{"formulae":[]}`)))
 	require.Empty(t, brew.LinkedKeg([]byte("not json")))
 }
@@ -49,7 +56,8 @@ func TestFormulaRef(t *testing.T) {
 	t.Parallel()
 
 	require.Equal(t, "clover", brew.Config{Formula: "clover"}.FormulaRef(), "no tap")
-	require.Equal(t,
+	require.Equal(
+		t,
 		"gechr/tap/clover",
 		brew.Config{Formula: "clover", Tap: "gechr/tap"}.FormulaRef(),
 		"tap-qualified",
@@ -63,7 +71,10 @@ func TestHeadBuildMatch(t *testing.T) {
 		version string
 		want    bool
 	}{
-		{"0.1.0-gabc1234-dev", true},
+		{
+			"0.1.0-gabc1234-dev",
+			true,
+		},
 		{"0.1.0-deadbeef-dev", true},
 		{"v0.0.0-g0abc123-dev", true},
 		{"0.1.0", false},

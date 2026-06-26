@@ -25,7 +25,12 @@ func TestCompare(t *testing.T) {
 		a, b string
 		want int
 	}{
-		{name: "equal", a: "1.2.3", b: "1.2.3", want: 0},
+		{
+			name: "equal",
+			a:    "1.2.3",
+			b:    "1.2.3",
+			want: 0,
+		},
 		{name: "major higher", a: "2.0.0", b: "1.9.9", want: 1},
 		{name: "major lower", a: "1.9.9", b: "2.0.0", want: -1},
 		{name: "minor higher", a: "1.3.0", b: "1.2.9", want: 1},

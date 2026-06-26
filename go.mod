@@ -6,7 +6,7 @@ require (
 	charm.land/lipgloss/v2 v2.0.4
 	github.com/cli/go-gh/v2 v2.13.0
 	github.com/creativeprojects/go-selfupdate v1.5.2
-	github.com/gechr/clog v0.11.4
+	github.com/gechr/clog v0.11.9
 	github.com/gechr/x v0.1.10
 	github.com/hashicorp/go-version v1.9.0
 	github.com/maruel/natural v1.3.0
@@ -168,7 +168,7 @@ require (
 	github.com/nishanths/predeclared v0.2.2 // indirect
 	github.com/nunnatsa/ginkgolinter v0.23.0 // indirect
 	github.com/pelletier/go-toml v1.9.5 // indirect
-	github.com/pelletier/go-toml/v2 v2.4.0 // indirect
+	github.com/pelletier/go-toml/v2 v2.4.2 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/prometheus/client_golang v1.12.1 // indirect
 	github.com/prometheus/client_model v0.2.0 // indirect
@@ -238,7 +238,7 @@ require (
 	golang.org/x/term v0.44.0 // indirect
 	golang.org/x/text v0.36.0 // indirect
 	golang.org/x/time v0.14.0 // indirect
-	golang.org/x/tools v0.46.0 // indirect
+	golang.org/x/tools v0.47.0 // indirect
 	google.golang.org/protobuf v1.36.11 // indirect
 	gopkg.in/ini.v1 v1.67.0 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect

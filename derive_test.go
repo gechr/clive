@@ -14,7 +14,11 @@ func TestDeriveVersion(t *testing.T) {
 		revision string
 		want     string
 	}{
-		{name: "tagged release", module: "v1.2.3", want: "v1.2.3"},
+		{
+			name:   "tagged release",
+			module: "v1.2.3",
+			want:   "v1.2.3",
+		},
 		{name: "release without v prefix", module: "1.2.3", want: "v1.2.3"},
 		{
 			name:   "go install pseudo-version",

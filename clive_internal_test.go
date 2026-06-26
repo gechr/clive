@@ -41,7 +41,12 @@ func TestGoPrivate(t *testing.T) {
 	tests := []struct {
 		name, module, existing, want string
 	}{
-		{"no existing value", "github.com/x/y", "", "github.com/x/y"},
+		{
+			"no existing value",
+			"github.com/x/y",
+			"",
+			"github.com/x/y",
+		},
 		{"prepends to existing", "github.com/x/y", "example.com/*", "github.com/x/y,example.com/*"},
 		{"trims whitespace", "github.com/x/y", "  example.com/*  ", "github.com/x/y,example.com/*"},
 		{"whitespace-only existing", "github.com/x/y", "   ", "github.com/x/y"},
@@ -60,7 +65,10 @@ func TestFormat(t *testing.T) {
 	tests := []struct {
 		in, want string
 	}{
-		{"1.2.3", "v1.2.3"},
+		{
+			"1.2.3",
+			"v1.2.3",
+		},
 		{"v1.2.3", "v1.2.3"},
 		{"1.2.3-", "v1.2.3"},
 		{"0.21.4-1-g4bed8a3-dev", "v0.21.4-1-g4bed8a3-dev"},
@@ -81,7 +89,11 @@ func TestExtractCommitHash(t *testing.T) {
 		in   string
 		want string
 	}{
-		{name: "git describe", in: "v0.21.4-1-g4bed8a31", want: "4bed8a31"},
+		{
+			name: "git describe",
+			in:   "v0.21.4-1-g4bed8a31",
+			want: "4bed8a31",
+		},
 		{name: "git describe + dev", in: "v0.21.4-1-g4bed8a31-dev", want: "4bed8a31"},
 		{name: "old dev format", in: "v0.21.4-4bed8a31-dev", want: "4bed8a31"},
 		{name: "plain release no hash", in: "v1.2.3", want: ""},
@@ -104,10 +116,7 @@ func TestIsHex(t *testing.T) {
 		in   string
 		want bool
 	}{
-		{"abcdef0", true},
-		{"1234567", true},
-		{"ABCDEF0", true},
-		{"abc", false},     // too short
+		{"abcdef0", true}, {"1234567", true}, {"ABCDEF0", true}, {"abc", false}, // too short
 		{"abcdefg", false}, // 'g' not hex
 		{"", false},
 	}
@@ -128,7 +137,12 @@ func TestIsNewer(t *testing.T) {
 		latest  string
 		want    bool
 	}{
-		{name: "newer available", current: "v1.0.0", latest: "v1.1.0", want: true},
+		{
+			name:    "newer available",
+			current: "v1.0.0",
+			latest:  "v1.1.0",
+			want:    true,
+		},
 		{name: "same version", current: "v1.0.0", latest: "v1.0.0", want: false},
 		{name: "current is newer", current: "v1.1.0", latest: "v1.0.0", want: false},
 		{

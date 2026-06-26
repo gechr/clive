@@ -35,10 +35,7 @@ func TestVersionLinkPlainTextInTests(t *testing.T) {
 	i := clive.Info{Module: "github.com/gechr/clive"}
 
 	for _, v := range []string{
-		"v1.2.3",
-		"1.2.3",
-		"v0.21.4-1-g4bed8a3-dev",
-		"v0.21.4-4bed8a3-dev",
+		"v1.2.3", "1.2.3", "v0.21.4-1-g4bed8a3-dev", "v0.21.4-4bed8a3-dev",
 	} {
 		assert.Equalf(t, v, i.VersionLink(v), "VersionLink(%q)", v)
 	}
@@ -52,7 +49,6 @@ func TestVersionLinkEmptyForUnknownRepo(t *testing.T) {
 	i := clive.Info{Module: "go.example.com/foo"}
 	got := i.VersionLink("v1.2.3")
 	// No OSC8 escape sequence (\x1b]8) should appear.
-	assert.NotContainsf(t, got, "\x1b]8",
-		"unexpected hyperlink for non-github module: %q", got)
+	assert.NotContainsf(t, got, "\x1b]8", "unexpected hyperlink for non-github module: %q", got)
 	assert.Equal(t, "v1.2.3", got)
 }

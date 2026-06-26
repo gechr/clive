@@ -18,6 +18,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"net/url"
 	"os"
 	"path"
 	"path/filepath"
@@ -92,30 +93,43 @@ func ChannelFor(prerelease bool) Channel {
 // Info.Repo or a github.com Info.Module is required to locate releases;
 // everything else has a sensible default.
 type Config struct {
+	// Binary is the executable name located inside a downloaded archive and
+	// installed into Dir. Defaults to the repo (or module) name.
+	Binary string
+	// ChecksumFile is the name of the combined checksums asset verified against the
+	// download, for a release that names it other than goreleaser's default.
+	// Defaults to "checksums.txt". Ignored when SkipChecksum is set.
+	ChecksumFile string
+	// Dir is the directory the binary is installed into. A leading "~" and any
+	// $ENV references are expanded. Defaults to ~/.local/bin.
+	Dir string
+	// EnterpriseURL is the API base URL of a GitHub Enterprise instance, e.g.
+	// "https://ghe.example.com/api/v3/". When set, releases are fetched from there
+	// and the gh token is resolved for that host rather than github.com. Empty uses
+	// public github.com.
+	EnterpriseURL string
+	// Filters are optional regexp matched against asset names, to disambiguate a
+	// release that publishes several assets for the same OS/arch. An asset must
+	// match one of them in addition to the OS/arch/extension matching.
+	Filters []string
 	// Info carries the repo ("owner/name", via Info.Repo or a github.com
 	// Info.Module) used to query releases and build version links.
 	Info clive.Info
 	// Name is the display name shown in messages. Defaults to the binary name.
 	Name string
-	// Binary is the executable name located inside a downloaded archive and
-	// installed into Dir. Defaults to the repo (or module) name.
-	Binary string
-	// Dir is the directory the binary is installed into. A leading "~" and any
-	// $ENV references are expanded. Defaults to ~/.local/bin.
-	Dir string
-	// Filters are optional regexp matched against asset names, to disambiguate a
-	// release that publishes several assets for the same OS/arch. An asset must
-	// match one of them in addition to the OS/arch/extension matching.
-	Filters []string
-	// TokenEnv names an environment variable consulted before the gh CLI's stored
-	// credentials for a GitHub token. Defaults to "GITHUB_TOKEN".
-	TokenEnv string
 	// Prerelease makes the default channel (used by Check and the notify
 	// integration) consider prereleases.
 	Prerelease bool
 	// SkipChecksum disables sha256 verification of the downloaded asset against a
-	// published checksums.txt. Verification is on by default.
+	// published checksums file. Verification is on by default.
 	SkipChecksum bool
+	// TokenEnv names an environment variable consulted before the gh CLI's stored
+	// credentials for a GitHub token. Defaults to "GITHUB_TOKEN".
+	TokenEnv string
+	// UniversalArch is the architecture name of a macOS universal binary asset
+	// (e.g. "all"); when set, that asset is chosen if none matches the host's
+	// specific arch.
+	UniversalArch string
 }
 
 // Check reports whether a newer release of cfg is available, without installing.
@@ -184,19 +198,25 @@ func Update(ctx context.Context, cfg Config, channel Channel) error {
 // the resolved token, a goreleaser checksums validator unless disabled, and any
 // asset filters.
 func newUpdater(cfg Config, prerelease bool) (*selfupdate.Updater, error) {
-	source, err := selfupdate.NewGitHubSource(selfupdate.GitHubConfig{APIToken: resolveToken(cfg)})
+	source, err := selfupdate.NewGitHubSource(selfupdate.GitHubConfig{
+		APIToken:          resolveToken(cfg),
+		EnterpriseBaseURL: cfg.EnterpriseURL,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("github: build source: %w", err)
 	}
 	var validator selfupdate.Validator
 	if !cfg.SkipChecksum {
-		validator = &selfupdate.ChecksumValidator{UniqueFilename: checksumsFilename}
+		validator = &selfupdate.ChecksumValidator{
+			UniqueFilename: cmp.Or(cfg.ChecksumFile, checksumsFilename),
+		}
 	}
 	up, err := selfupdate.NewUpdater(selfupdate.Config{
-		Source:     source,
-		Validator:  validator,
-		Filters:    cfg.Filters,
-		Prerelease: prerelease,
+		Source:        source,
+		Validator:     validator,
+		Filters:       cfg.Filters,
+		Prerelease:    prerelease,
+		UniversalArch: cfg.UniversalArch,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("github: build updater: %w", err)
@@ -208,8 +228,20 @@ func newUpdater(cfg Config, prerelease bool) (*selfupdate.Updater, error) {
 // var, then the gh CLI's stored credentials. An empty result means anonymous
 // access, which still reads public repositories.
 func resolveToken(cfg Config) string {
-	gh, _ := ghauth.TokenForHost(host)
+	gh, _ := ghauth.TokenForHost(tokenHost(cfg))
 	return cmp.Or(os.Getenv(cmp.Or(cfg.TokenEnv, defaultTokenEnv)), gh)
+}
+
+// tokenHost is the host whose gh credentials authenticate API calls: the
+// Enterprise host parsed from EnterpriseURL when set, else github.com.
+func tokenHost(cfg Config) string {
+	if cfg.EnterpriseURL == "" {
+		return host
+	}
+	if u, err := url.Parse(cfg.EnterpriseURL); err == nil && u.Host != "" {
+		return u.Host
+	}
+	return host
 }
 
 // installPath is the absolute path the binary is installed to, creating the
