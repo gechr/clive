@@ -5,7 +5,7 @@ go 1.26.2
 require (
 	charm.land/lipgloss/v2 v2.0.4
 	github.com/gechr/clog v0.11.4
-	github.com/gechr/x v0.1.7
+	github.com/gechr/x v0.1.10
 	github.com/hashicorp/go-version v1.9.0
 	github.com/maruel/natural v1.3.0
 	github.com/stretchr/testify v1.11.1

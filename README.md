@@ -4,12 +4,13 @@ Version detection, display, and update-check helpers for Go CLIs.
 
 ## Packages
 
-| Package               | Description                                                    |
-| --------------------- | -------------------------------------------------------------- |
-| `clive`               | Version detection, display, and update checks                  |
-| `clive/semver`        | [Semantic version](https://semver.org/) parsing and comparison |
-| `clive/update/notify` | Background update hints                                        |
-| `clive/update/brew`   | Self-update a CLI binary through Homebrew                      |
+| Package                  | Description                                                    |
+| ------------------------ | -------------------------------------------------------------- |
+| `clive`                  | Version detection, display, and update checks                  |
+| `clive/semver`           | [Semantic version](https://semver.org/) parsing and comparison |
+| `clive/update/notify`    | Background update hints                                        |
+| `clive/update/brew`      | Self-update a CLI binary through Homebrew                      |
+| `clive/update/goinstall` | Self-update a CLI binary through `go install`                  |
 
 ## Installation
 
