@@ -204,6 +204,54 @@ func TestShouldHintRereadsCache(t *testing.T) {
 	require.Equal(t, "v2.0.0", latest)
 }
 
+func TestNotifyDue(t *testing.T) {
+	t.Parallel()
+
+	c := newChecker(cfg(), WithCacheDir(t.TempDir()), WithCurrentVersion("v1.0.0"))
+	require.True(t, c.notifyDue(), "no marker yet means due")
+
+	c.markNotified()
+	require.False(t, c.notifyDue(), "a fresh marker throttles the next hint")
+
+	old := time.Now().Add(-2 * c.notifyInterval)
+	require.NoError(t, os.Chtimes(c.notifyPath(), old, old))
+	require.True(t, c.notifyDue(), "a marker older than the interval is due again")
+
+	c.notifyInterval = 0
+	require.True(t, c.notifyDue(), "a non-positive interval disables the throttle")
+}
+
+func TestHintThrottledToOncePerNotifyInterval(t *testing.T) {
+	dir := t.TempDir()
+
+	stderr := os.Stderr
+	f, err := os.CreateTemp(t.TempDir(), "stderr")
+	require.NoError(t, err)
+	defer func() { os.Stderr = stderr }()
+	os.Stderr = f
+
+	c := newChecker(
+		cfg(),
+		WithCacheDir(dir),
+		WithCurrentVersion("v1.0.0"),
+		WithLatestFunc(func(context.Context) (string, error) { return "v1.2.0", nil }),
+	)
+	c.writeStamp("v1.2.0")
+
+	flush := c.hint()
+	flush()
+	require.True(t, AwaitRefresh(time.Second))
+
+	info, err := os.Stat(c.notifyPath())
+	require.NoError(t, err, "the first hint records the notify marker")
+	first := info.ModTime()
+
+	flush()
+	info, err = os.Stat(c.notifyPath())
+	require.NoError(t, err)
+	require.Equal(t, first, info.ModTime(), "a second run within the interval does not re-hint")
+}
+
 func TestPendingSharesHintVerdictAndFields(t *testing.T) {
 	t.Parallel()
 
@@ -367,7 +415,7 @@ func TestOldFormatCacheReadsCleanly(t *testing.T) {
 
 	dir := t.TempDir()
 	require.NoError(t, os.WriteFile(
-		filepath.Join(dir, stampName),
+		filepath.Join(dir, refreshStampName),
 		[]byte("v2.0.0\n"),
 		stampPerm,
 	))
@@ -387,7 +435,7 @@ func TestEmptyCacheIsNotPending(t *testing.T) {
 	t.Parallel()
 
 	dir := t.TempDir()
-	require.NoError(t, os.WriteFile(filepath.Join(dir, stampName), nil, stampPerm))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, refreshStampName), nil, stampPerm))
 
 	res, pending := Pending(cfg(), WithCacheDir(dir), WithCurrentVersion("v1.0.0"))
 	require.False(t, pending)

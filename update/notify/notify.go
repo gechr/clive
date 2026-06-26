@@ -8,10 +8,13 @@
 // When that cache is stale, a background goroutine refreshes it; the refresh is
 // abandoned at process exit unless the host calls [AwaitRefresh]. The flush
 // re-reads the cache, so a refresh that finishes while the command runs is shown
-// that same run; otherwise its result appears on the next invocation. A tool
-// describes itself with a [brew.Config] - the same value its self-update uses -
-// calls [Check] before dispatching its command, and invokes the returned flush
-// function after:
+// that same run; otherwise its result appears on the next invocation. The
+// auto-printed hint is itself throttled to once per notify interval (default 24h,
+// [WithNotifyInterval]), independent of the refresh interval (default 24h,
+// [WithRefreshInterval]); either interval set non-positive disables its throttle.
+// A tool describes itself with a [brew.Config] - the same value its self-update
+// uses - calls [Check] before dispatching its command, and invokes the returned
+// flush function after:
 //
 //	flush := notify.Check(brew.Config{
 //		Info:    clive.Info{Module: "github.com/example/myapp"},
@@ -66,9 +69,16 @@ import (
 )
 
 const (
-	// cooldown is the minimum gap between network refreshes. The cache mtime
-	// records the last refresh, so the network is hit at most once per cooldown.
-	cooldown = 24 * time.Hour
+	// defaultRefreshInterval is the minimum gap between network refreshes. The
+	// cache mtime records the last refresh, so the network is hit at most once per
+	// interval. [WithRefreshInterval] overrides it.
+	defaultRefreshInterval = 24 * time.Hour
+
+	// defaultNotifyInterval is the minimum gap between repeat auto-printed hints.
+	// A pending update is surfaced at most once per interval rather than on every
+	// invocation; [WithNotifyInterval] overrides it, and a non-positive interval
+	// disables the throttle so every run prints.
+	defaultNotifyInterval = 24 * time.Hour
 
 	// lookupTimeout bounds the background tag fetch.
 	lookupTimeout = 2 * time.Second
@@ -79,10 +89,15 @@ const (
 	// dirPerm is the mode of the per-tool cache directory.
 	dirPerm = 0o755
 
-	// stampName is the cache file under the per-tool cache directory. Its content
-	// records the latest known ref and dismissed ref; its mtime is when that was
-	// last refreshed.
-	stampName = "last-update-check"
+	// refreshStampName is the cache file under the per-tool cache directory. Its
+	// content records the latest known ref and dismissed ref; its mtime is when
+	// that was last refreshed.
+	refreshStampName = "last-update-check"
+
+	// notifyStampName is the marker file whose mtime records when the auto-printed
+	// hint was last shown. It is kept separate from refreshStampName so recording a
+	// hint never disturbs the refresh mtime, and is empty - only its mtime matters.
+	notifyStampName = "last-update-notify"
 
 	// stampVersion is the current structured cache file format.
 	stampVersion = 1
@@ -171,90 +186,19 @@ func AwaitRefresh(timeout time.Duration) bool {
 	return refreshes.wait(timeout)
 }
 
-// Option configures a [Check]. The defaults target a real run; the seams exist
-// for testing and for callers that supply their own HTTP client or accent.
-type Option func(*checker)
-
-// WithCurrentVersion overrides the running ref compared against the latest ref.
-// It defaults to [clive.Current].
-func WithCurrentVersion(v string) Option {
-	return func(c *checker) { c.current = v }
-}
-
-// WithTransport sets the HTTP transport, the seam tests use to serve canned tag
-// payloads without touching the network.
-func WithTransport(rt http.RoundTripper) Option {
-	return func(c *checker) { c.client.Transport = rt }
-}
-
-// WithCacheDir overrides the directory holding the cache file.
-func WithCacheDir(dir string) Option {
-	return func(c *checker) { c.cacheDir = dir }
-}
-
-// WithColor overrides the accent colour of the update message. It defaults to
-// the orange lipgloss.Color(updateColor).
-func WithColor(c color.Color) Option {
-	return func(ck *checker) { ck.color = c }
-}
-
-// WithComparator overrides the decision that latest is an update over current.
-// The default comparator is semver-based and treats dev builds as ahead of their
-// base tag. Non-semver tracks can provide a comparator such as current != latest.
-func WithComparator(fn func(current, latest string) bool) Option {
-	return func(c *checker) {
-		if fn != nil {
-			c.comparator = fn
-		}
-	}
-}
-
-// WithRefDisplay overrides how refs render in the auto-printed hint and in
-// [Result] display fields. The default display is the raw ref unchanged.
-func WithRefDisplay(fn func(string) string) Option {
-	return func(c *checker) {
-		if fn != nil {
-			c.display = fn
-		}
-	}
-}
-
-// WithChannel selects a release track and namespaces the cache for that track.
-// Switching tracks never compares the new track against another track's cached
-// ref; the new track starts stale and refreshes independently.
-func WithChannel(name string) Option {
-	return func(c *checker) { c.channel = name }
-}
-
-// LatestFunc reports the latest released ref of the tool, such as "v1.2.3" or a
-// commit hash. It is called only on a stale-cache refresh, off the calling path,
-// and bounded by the same lookupTimeout as the default check.
-type LatestFunc func(ctx context.Context) (string, error)
-
-// WithLatestFunc overrides how a refresh discovers the latest ref. By default
-// the latest ref is the highest semver tag in the tool's GitHub repository
-// ([clive.Info.LatestTag]); a tool whose releases are not published as readable
-// GitHub tags - e.g. a private repo distributed from an artifact bucket -
-// supplies its own lookup here.
-func WithLatestFunc(fn LatestFunc) Option {
-	return func(c *checker) {
-		if fn != nil {
-			c.latest = fn
-		}
-	}
-}
-
 // checker holds the resolved configuration for one check.
 type checker struct {
-	cfg        brew.Config
-	current    string
-	channel    string
-	client     *http.Client
-	cacheDir   string
-	color      color.Color
-	latest     LatestFunc
-	comparator func(current, latest string) bool
-	display    func(string) string
+	cfg             brew.Config
+	current         string
+	channel         string
+	client          *http.Client
+	cacheDir        string
+	color           color.Color
+	latest          LatestFunc
+	comparator      func(current, latest string) bool
+	display         func(string) string
+	refreshInterval time.Duration
+	notifyInterval  time.Duration
 }
 
 // stamp is the structured cache file format.
@@ -278,6 +222,8 @@ func newChecker(cfg brew.Config, opts ...Option) *checker {
 		display: func(s string) string {
 			return s
 		},
+		refreshInterval: defaultRefreshInterval,
+		notifyInterval:  defaultNotifyInterval,
 	}
 	// Default to the GitHub-tags lookup, reading c.client at call time so a
 	// WithTransport seam still applies; WithLatestFunc replaces it wholesale.
@@ -299,17 +245,48 @@ func (c *checker) hint() func() {
 	c.scheduleRefresh()
 
 	return func() {
-		if res, ok := c.pending(); ok {
-			c.printHint(res)
+		res, ok := c.pending()
+		if !ok || !c.notifyDue() {
+			return
 		}
+		c.printHint(res)
+		c.markNotified()
 	}
+}
+
+// notifyDue reports whether enough time has elapsed since the last auto-printed
+// hint for another to be shown. A non-positive interval, an absent cache, or an
+// unreadable marker all mean due, so a hint that cannot record itself simply
+// shows again next time.
+func (c *checker) notifyDue() bool {
+	if c.notifyInterval <= 0 || c.cacheDir == "" {
+		return true
+	}
+	info, err := os.Stat(c.notifyPath())
+	if err != nil {
+		return true
+	}
+	return time.Since(info.ModTime()) >= c.notifyInterval
+}
+
+// markNotified stamps the notify marker's mtime to now, starting the interval
+// before the next hint. The file content is irrelevant - only its mtime matters
+// - and failures are ignored.
+func (c *checker) markNotified() {
+	if c.cacheDir == "" {
+		return
+	}
+	if err := xos.EnsureDir(c.cacheDir, dirPerm); err != nil {
+		return
+	}
+	_ = xos.AtomicWrite(c.notifyPath(), nil, stampPerm)
 }
 
 // scheduleRefresh starts a background refresh when the active track's cache is
 // missing, stale, or belongs to another track.
 func (c *checker) scheduleRefresh() {
 	st, checkedAt, cached := c.readStamp()
-	if !cached || st.Track != c.channel || time.Since(checkedAt) >= cooldown {
+	if !cached || st.Track != c.channel || time.Since(checkedAt) >= c.refreshInterval {
 		c.startRefresh()
 	}
 }
@@ -455,12 +432,23 @@ func (c *checker) saveStamp(st stamp) error {
 	return xos.AtomicWrite(c.stampPath(), data, stampPerm)
 }
 
-// stampPath returns the active track's cache file.
+// stampPath returns the active track's refresh cache file.
 func (c *checker) stampPath() string {
+	return c.cacheFile(refreshStampName)
+}
+
+// notifyPath returns the active track's hint marker file.
+func (c *checker) notifyPath() string {
+	return c.cacheFile(notifyStampName)
+}
+
+// cacheFile returns base namespaced for the active track, so each track keeps an
+// independent cache.
+func (c *checker) cacheFile(base string) string {
 	if c.channel == "" {
-		return filepath.Join(c.cacheDir, stampName)
+		return filepath.Join(c.cacheDir, base)
 	}
-	return filepath.Join(c.cacheDir, stampName+"-"+url.PathEscape(c.channel))
+	return filepath.Join(c.cacheDir, base+"-"+url.PathEscape(c.channel))
 }
 
 // refreshTracker tracks background refreshes without spawning wait goroutines.
