@@ -4,6 +4,8 @@ package brew
 
 var HeadBuild = headBuild
 
+var LinkedKeg = linkedKeg
+
 var ProxyBypass = proxyBypass
 
 func (c Config) FormulaRef() string { return c.formulaRef() }

@@ -16,6 +16,20 @@ func TestChannelFor(t *testing.T) {
 	require.Equal(t, brew.Dev, brew.ChannelFor(true, true), "dev takes precedence")
 }
 
+func TestLinkedKeg(t *testing.T) {
+	t.Parallel()
+
+	const multi = `{"formulae":[{"linked_keg":"0.32.0",` +
+		`"installed":[{"version":"0.31.7"},{"version":"0.32.0"}]}]}`
+	require.Equal(t, "0.32.0", brew.LinkedKeg([]byte(multi)),
+		"the linked keg wins over the arbitrary order of installed kegs")
+
+	require.Empty(t, brew.LinkedKeg([]byte(`{"formulae":[{"linked_keg":""}]}`)),
+		"an unlinked formula reports no version")
+	require.Empty(t, brew.LinkedKeg([]byte(`{"formulae":[]}`)))
+	require.Empty(t, brew.LinkedKeg([]byte("not json")))
+}
+
 func TestConflictPolicyZeroValueWarns(t *testing.T) {
 	t.Parallel()
 

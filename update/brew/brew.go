@@ -13,6 +13,7 @@ import (
 	"bytes"
 	"cmp"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -261,18 +262,34 @@ func (r *runner) installed(ctx context.Context) bool {
 	return r.brewCmd(ctx, "list", r.cfg.Formula).Run() == nil
 }
 
-// installedVersion returns the formula's installed version via brew, or "".
+// installedVersion returns the formula's active (linked) version via brew, or
+// "". An upgrade links the freshly-installed keg, so the linked keg is the
+// version now on PATH. This reads `brew info --json`, not `brew list --versions`:
+// the latter enumerates every installed keg in arbitrary order, so a stale keg
+// left behind before `brew cleanup` could be reported instead of the new one.
 func (r *runner) installedVersion(ctx context.Context) string {
-	out, err := r.brewCmd(ctx, "list", "--versions", r.cfg.Formula).Output()
+	out, err := r.brewCmd(ctx, "info", "--json=v2", r.cfg.Formula).Output()
 	if err != nil {
 		return ""
 	}
-	// "formula 1.2.3" -> "1.2.3".
-	fields := strings.Fields(string(out))
-	if len(fields) < 2 { //nolint:mnd // a formula listing is "name version"
+	return linkedKeg(out)
+}
+
+// brewInfoJSON is the subset of `brew info --json=v2` that names the active keg.
+type brewInfoJSON struct {
+	Formulae []struct {
+		LinkedKeg string `json:"linked_keg"`
+	} `json:"formulae"`
+}
+
+// linkedKeg returns the active (linked) version from `brew info --json=v2`
+// output, or "" when nothing is linked.
+func linkedKeg(data []byte) string {
+	var info brewInfoJSON
+	if err := json.Unmarshal(data, &info); err != nil || len(info.Formulae) == 0 {
 		return ""
 	}
-	return fields[len(fields)-1]
+	return info.Formulae[0].LinkedKeg
 }
 
 // cleanup handles copies of the binary found on PATH outside Homebrew, so the
