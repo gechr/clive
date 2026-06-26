@@ -4,9 +4,10 @@
 // removes stray non-Homebrew copies so the brew install is authoritative.
 // [Check] reports whether a newer release exists without installing anything.
 //
-// It is one update mechanism under clive/update; others (e.g. a release-asset
-// downloader) can sit alongside it. The clog dependency lives here, keeping the
-// core clive package dependency-light for version-only consumers.
+// It is one update mechanism under clive/updater; others (goinstall, github) sit
+// alongside it and share that package's UX helpers. The clog dependency lives
+// here, keeping the core clive package dependency-light for version-only
+// consumers.
 package brew
 
 import (
@@ -17,6 +18,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"os/exec"
 	"regexp"
@@ -24,7 +26,7 @@ import (
 	"time"
 
 	"github.com/gechr/clive"
-	"github.com/gechr/clive/version"
+	"github.com/gechr/clive/updater"
 	"github.com/gechr/clog"
 )
 
@@ -111,7 +113,7 @@ func Check(ctx context.Context, cfg Config) error {
 		return fmt.Errorf("check for updates: %w", err)
 	}
 	if !available {
-		upToDate(cfg.DisplayName(), cfg.Info, clive.Current())
+		updater.UpToDate(cfg.DisplayName(), cfg.Info, clive.Current())
 		return nil
 	}
 	latest, _ := cfg.Info.Latest(ctx)
@@ -231,30 +233,11 @@ func (r *runner) tap(ctx context.Context) error {
 	return r.run(ctx, args...)
 }
 
-// report logs the resulting version, as an old→new pair when it changed.
+// report logs the resulting version, as an old→new pair when it changed. It
+// returns nil so callers can `return r.report(ctx)` in the success path.
 func (r *runner) report(ctx context.Context) error {
-	old := version.RemovePrefix(r.current)
-	current := version.RemovePrefix(r.installedVersion(ctx))
-	if old != "" && current != "" && old != current {
-		clog.Info().
-			Symbol("🎉").
-			Str("old", r.cfg.Info.VersionLink(old)).
-			Str("new", r.cfg.Info.VersionLink(current)).
-			Msgf("Updated %s", r.cfg.DisplayName())
-		return nil
-	}
-	upToDate(r.cfg.DisplayName(), r.cfg.Info, cmp.Or(current, old))
+	updater.Report(r.cfg.DisplayName(), r.cfg.Info, r.current, r.installedVersion(ctx))
 	return nil
-}
-
-// upToDate warns that no update was applied, including the version field only
-// when a version is known (a go-run build has none to show).
-func upToDate(name string, info clive.Info, ver string) {
-	e := clog.Warn()
-	if ver != "" {
-		e = e.Str("version", info.VersionLink(ver))
-	}
-	e.Msgf("%s is already up-to-date", name)
 }
 
 // installed reports whether brew already manages the formula.
@@ -346,18 +329,12 @@ func (r *runner) resolveConflict(path string) {
 	}
 }
 
-// spin runs a brew command under a spinner: it logs a completion line on
-// success, and on failure returns the error (via [runner.run]) for the caller
-// to surface. The failure path uses Silent so the spinner does not log its own
-// error line, leaving the caller to report the failure exactly once.
+// spin runs a brew command under a spinner via [updater.Spin], logging a
+// completion line on success and surfacing [runner.run]'s error on failure.
 func (r *runner) spin(ctx context.Context, msg string, args ...string) error {
-	res := clog.Spinner(msg).Elapsed("elapsed").Wait(ctx, func(ctx context.Context) error {
+	return updater.Spin(ctx, msg, func(ctx context.Context) error {
 		return r.run(ctx, args...)
 	})
-	if err := res.Silent(); err != nil {
-		return err
-	}
-	return res.Msg(msg)
 }
 
 // run executes a brew command without any logging, capturing stderr so a
@@ -393,22 +370,9 @@ func (r *runner) brewCmd(ctx context.Context, args ...string) *exec.Cmd {
 	cmd := exec.CommandContext(ctx, r.brew, args...) //nolint:gosec // controlled args
 	cmd.Env = append(os.Environ(), "HOMEBREW_NO_ENV_HINTS=1")
 	if r.cfg.NoProxy {
-		cmd.Env = append(cmd.Env, proxyBypass()...)
+		cmd.Env = append(cmd.Env, updater.ProxyBypass()...)
 	}
 	return cmd
-}
-
-// proxyBypass returns env entries that disable any inherited proxy: each proxy
-// variable is blanked (an empty value overrides the inherited one) and NO_PROXY
-// is set to "*" so every host is exempt. Both cases are set, as tools read
-// either.
-func proxyBypass() []string {
-	return []string{
-		"HTTP_PROXY=", "http_proxy=",
-		"HTTPS_PROXY=", "https_proxy=",
-		"ALL_PROXY=", "all_proxy=",
-		"NO_PROXY=*", "no_proxy=*",
-	}
 }
 
 // BinaryName is the executable/command name, defaulting to the formula. Shared
@@ -418,7 +382,17 @@ func (c Config) BinaryName() string { return cmp.Or(c.Binary, c.Formula) }
 
 // DisplayName is the human-facing name used in messages, defaulting to the
 // binary (and thus the formula) name when Name is unset.
-func (c Config) DisplayName() string { return cmp.Or(c.Name, c.BinaryName()) }
+func (c Config) DisplayName() string { return updater.DisplayName(c.Name, c.BinaryName()) }
+
+// VersionLink renders v as a clickable link to its release or commit, delegating
+// to the embedded [clive.Info]. It lets [Config] satisfy [updater.Tool].
+func (c Config) VersionLink(v string) string { return c.Info.VersionLink(v) }
+
+// LatestRef returns the highest semver tag in the tool's repository, delegating
+// to [clive.Info.LatestTag]. It lets [Config] satisfy [updater.Tool].
+func (c Config) LatestRef(ctx context.Context, client *http.Client) (string, error) {
+	return c.Info.LatestTag(ctx, client)
+}
 
 // formulaRef is the brew install target: tap-qualified when a tap is set.
 func (c Config) formulaRef() string {

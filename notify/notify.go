@@ -12,9 +12,10 @@
 // auto-printed hint is itself throttled to once per notify interval (default 24h,
 // [WithNotifyInterval]), independent of the refresh interval (default 24h,
 // [WithRefreshInterval]); either interval set non-positive disables its throttle.
-// A tool describes itself with a [brew.Config] - the same value its self-update
-// uses - calls [Check] before dispatching its command, and invokes the returned
-// flush function after:
+// A tool describes itself with an [updater.Tool] - the same Config its
+// self-update uses, such as a brew.Config, goinstall.Config, or github.Config -
+// calls [Check] before dispatching its command, and invokes the returned flush
+// function after:
 //
 //	flush := notify.Check(brew.Config{
 //		Info:    clive.Info{Module: "github.com/example/myapp"},
@@ -70,7 +71,7 @@ import (
 
 	"charm.land/lipgloss/v2"
 	"github.com/gechr/clive"
-	"github.com/gechr/clive/update/brew"
+	"github.com/gechr/clive/updater"
 	"github.com/gechr/clive/version"
 	"github.com/gechr/clog"
 	xos "github.com/gechr/x/os"
@@ -124,7 +125,7 @@ var refreshes = newRefreshTracker()
 
 // Check serves an "update available" hint from the per-tool cache and, when that
 // cache is stale, refreshes it in the background for the next invocation. It
-// never blocks and never touches the network on the calling path. cfg describes
+// never blocks and never touches the network on the calling path. tool describes
 // the tool: its binary name forms the kill-switch env var, the cache namespace,
 // and the `<binary> update` command, and its display name opens the message.
 //
@@ -133,8 +134,8 @@ var refreshes = newRefreshTracker()
 // update is pending, when the check is disabled, or when stderr is not a
 // terminal. Non-terminal stderr suppresses only printing; stale caches may still
 // refresh in the background.
-func Check(cfg brew.Config, opts ...Option) func() {
-	c := newChecker(cfg, opts...)
+func Check(tool updater.Tool, opts ...Option) func() {
+	c := newChecker(tool, opts...)
 
 	if os.Getenv(c.envVar()) != "" {
 		return func() {}
@@ -180,8 +181,8 @@ type Result struct {
 // and [Result.Dismissed] to tell a dismissal from no update. It uses the same
 // stale-cache background refresh path as [Check], but unlike the auto-printed
 // hint it does not require a TTY.
-func Pending(cfg brew.Config, opts ...Option) (Result, bool) {
-	c := newChecker(cfg, opts...)
+func Pending(tool updater.Tool, opts ...Option) (Result, bool) {
+	c := newChecker(tool, opts...)
 	if os.Getenv(c.envVar()) != "" {
 		return Result{}, false
 	}
@@ -191,8 +192,8 @@ func Pending(cfg brew.Config, opts ...Option) (Result, bool) {
 
 // Skip dismisses ref on the active track until the latest known ref changes.
 // The dismissal is persisted in the notify cache and survives process restarts.
-func Skip(cfg brew.Config, ref string, opts ...Option) error {
-	c := newChecker(cfg, opts...)
+func Skip(tool updater.Tool, ref string, opts ...Option) error {
+	c := newChecker(tool, opts...)
 	st, _, cached := c.readStamp()
 	if !cached || st.Track != c.channel {
 		st = stamp{Track: c.channel}
@@ -211,7 +212,7 @@ func AwaitRefresh(timeout time.Duration) bool {
 
 // checker holds the resolved configuration for one check.
 type checker struct {
-	cfg             brew.Config
+	tool            updater.Tool
 	current         string
 	channel         string
 	client          *http.Client
@@ -234,12 +235,12 @@ type stamp struct {
 }
 
 // newChecker builds a checker with real-run defaults, then applies opts.
-func newChecker(cfg brew.Config, opts ...Option) *checker {
+func newChecker(tool updater.Tool, opts ...Option) *checker {
 	c := &checker{
-		cfg:        cfg,
+		tool:       tool,
 		current:    clive.Current(),
 		client:     &http.Client{Timeout: lookupTimeout},
-		cacheDir:   defaultCacheDir(cfg.BinaryName()),
+		cacheDir:   defaultCacheDir(tool.BinaryName()),
 		color:      lipgloss.Color(updateColor),
 		comparator: newer,
 		display: func(s string) string {
@@ -248,10 +249,10 @@ func newChecker(cfg brew.Config, opts ...Option) *checker {
 		refreshInterval: defaultRefreshInterval,
 		notifyInterval:  defaultNotifyInterval,
 	}
-	// Default to the GitHub-tags lookup, reading c.client at call time so a
-	// WithTransport seam still applies; WithLatestFunc replaces it wholesale.
+	// Default to the tool's own latest-ref lookup, reading c.client at call time so
+	// a WithTransport seam still applies; WithLatestFunc replaces it wholesale.
 	c.latest = func(ctx context.Context) (string, error) {
-		return c.cfg.Info.LatestTag(ctx, c.client)
+		return c.tool.LatestRef(ctx, c.client)
 	}
 	for _, opt := range opts {
 		opt(c)
@@ -542,15 +543,15 @@ func (t *refreshTracker) wait(timeout time.Duration) bool {
 
 // envVar is the per-tool kill switch, such as "MYAPP_NO_UPDATE_CHECK".
 func (c *checker) envVar() string {
-	return strings.ToUpper(c.cfg.BinaryName()) + envSuffix
+	return strings.ToUpper(c.tool.BinaryName()) + envSuffix
 }
 
 // printHint logs the one-line "update available" hint: a leading blank line, the
 // 💡 symbol, the installed and latest refs as fields, and a coloured message
 // whose `<binary> update` command is bold.
 func (c *checker) printHint(res Result) {
-	display := c.cfg.DisplayName()
-	command := c.cfg.BinaryName() + " update"
+	display := c.tool.DisplayName()
+	command := c.tool.BinaryName() + " update"
 
 	msg := display + " is outdated! Run '" + command + "' to upgrade"
 	if !clog.ColorsDisabled() {
@@ -572,8 +573,8 @@ func (c *checker) printHint(res Result) {
 
 // hintRefs returns the rendered installed/latest fields used by printHint.
 func (c *checker) hintRefs(res Result) (string, string) {
-	return c.cfg.Info.VersionLink(res.CurrentDisplay),
-		c.cfg.Info.VersionLink(res.LatestDisplay)
+	return c.tool.VersionLink(res.CurrentDisplay),
+		c.tool.VersionLink(res.LatestDisplay)
 }
 
 // defaultCacheDir namespaces the cache file under the user cache directory

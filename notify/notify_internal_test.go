@@ -12,7 +12,7 @@ import (
 	"time"
 
 	"github.com/gechr/clive"
-	"github.com/gechr/clive/update/brew"
+	"github.com/gechr/clive/updater/brew"
 	"github.com/stretchr/testify/require"
 )
 
@@ -86,7 +86,7 @@ func TestEnvVar(t *testing.T) {
 	require.Equal(
 		t,
 		"MYAPP_NO_UPDATE_CHECK",
-		(&checker{cfg: brew.Config{Formula: "myapp"}}).envVar(),
+		(&checker{tool: brew.Config{Formula: "myapp"}}).envVar(),
 	)
 }
 

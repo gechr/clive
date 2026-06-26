@@ -4,6 +4,4 @@ package goinstall
 
 var ModuleVersion = moduleVersion
 
-var ProxyBypass = proxyBypass
-
 func (c Config) InstallTarget(channel Channel) string { return c.installTarget(channel) }

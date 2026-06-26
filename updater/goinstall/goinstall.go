@@ -4,10 +4,11 @@
 // into GOBIN, with a stable (@latest) and a dev (@branch) channel. [Check]
 // reports whether a newer release exists without installing anything.
 //
-// It is the `go install` counterpart to update/brew: a caller picks whichever
+// It is the `go install` counterpart to updater/brew: a caller picks whichever
 // mechanism matches how its tool is distributed and wires the same [clive.Info]
-// into either one. The clog dependency lives here, keeping the core clive
-// package dependency-light for version-only consumers.
+// into either one. Shared UX helpers live in the parent updater package. The
+// clog dependency lives here, keeping the core clive package dependency-light
+// for version-only consumers.
 package goinstall
 
 import (
@@ -17,6 +18,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"os/exec"
 	"path"
@@ -25,9 +27,8 @@ import (
 	"time"
 
 	"github.com/gechr/clive"
-	"github.com/gechr/clive/version"
+	"github.com/gechr/clive/updater"
 	"github.com/gechr/clog"
-	xfilepath "github.com/gechr/x/filepath"
 )
 
 // goTimeout bounds a full update; building from source can be slow.
@@ -35,11 +36,6 @@ const goTimeout = 5 * time.Minute
 
 // defaultBranch is the dev channel's ref when [Config.Branch] is unset.
 const defaultBranch = "main"
-
-// defaultDir is the install directory when [Config.Dir] is unset, relative to
-// the user's home. `go install` defaults to $GOPATH/bin, which is often not on
-// PATH; ~/.local/bin is the conventional per-user binary directory.
-const defaultDir = ".local/bin"
 
 // Channel selects what ref [Update] installs.
 type Channel int
@@ -93,7 +89,7 @@ func Check(ctx context.Context, cfg Config) error {
 		return fmt.Errorf("check for updates: %w", err)
 	}
 	if !available {
-		upToDate(cfg.DisplayName(), cfg.Info, clive.Current())
+		updater.UpToDate(cfg.DisplayName(), cfg.Info, clive.Current())
 		return nil
 	}
 	latest, _ := cfg.Info.Latest(ctx)
@@ -146,27 +142,7 @@ type runner struct {
 
 // report logs the resulting version, as an old→new pair when it changed.
 func (r *runner) report(ctx context.Context) {
-	old := version.RemovePrefix(r.current)
-	current := version.RemovePrefix(r.installedVersion(ctx))
-	if old != "" && current != "" && old != current {
-		clog.Info().
-			Symbol("🎉").
-			Str("old", r.cfg.Info.VersionLink(old)).
-			Str("new", r.cfg.Info.VersionLink(current)).
-			Msgf("Updated %s", r.cfg.DisplayName())
-		return
-	}
-	upToDate(r.cfg.DisplayName(), r.cfg.Info, cmp.Or(current, old))
-}
-
-// upToDate warns that no update was applied, including the version field only
-// when a version is known.
-func upToDate(name string, info clive.Info, ver string) {
-	e := clog.Warn()
-	if ver != "" {
-		e = e.Str("version", info.VersionLink(ver))
-	}
-	e.Msgf("%s is already up-to-date", name)
+	updater.Report(r.cfg.DisplayName(), r.cfg.Info, r.current, r.installedVersion(ctx))
 }
 
 // installedVersion reads the version embedded in the freshly-installed binary
@@ -226,18 +202,12 @@ func moduleVersion(data []byte) string {
 	return ""
 }
 
-// spin runs a go command under a spinner: it logs a completion line on success,
-// and on failure returns the error (via [runner.run]) for the caller to surface.
-// The failure path uses Silent so the spinner does not log its own error line,
-// leaving the caller to report the failure exactly once.
+// spin runs a go command under a spinner via [updater.Spin], logging a
+// completion line on success and surfacing [runner.run]'s error on failure.
 func (r *runner) spin(ctx context.Context, msg string, args ...string) error {
-	res := clog.Spinner(msg).Elapsed("elapsed").Wait(ctx, func(ctx context.Context) error {
+	return updater.Spin(ctx, msg, func(ctx context.Context) error {
 		return r.run(ctx, args...)
 	})
-	if err := res.Silent(); err != nil {
-		return err
-	}
-	return res.Msg(msg)
 }
 
 // run executes a go command without any logging, capturing stderr so a failure
@@ -270,36 +240,15 @@ func (r *runner) goCmd(ctx context.Context, args ...string) *exec.Cmd {
 		cmd.Env = append(cmd.Env, "GOBIN="+dir)
 	}
 	if r.cfg.Info.Private {
-		cmd.Env = append(cmd.Env, "GOPRIVATE="+goPrivate(r.cfg.Info.Module, os.Getenv("GOPRIVATE")))
+		cmd.Env = append(
+			cmd.Env,
+			"GOPRIVATE="+updater.GoPrivate(r.cfg.Info.Module, os.Getenv("GOPRIVATE")),
+		)
 	}
 	if r.cfg.NoProxy {
-		cmd.Env = append(cmd.Env, proxyBypass()...)
+		cmd.Env = append(cmd.Env, updater.ProxyBypass()...)
 	}
 	return cmd
-}
-
-// proxyBypass returns env entries that disable any inherited HTTP proxy: each
-// proxy variable is blanked (an empty value overrides the inherited one) and
-// NO_PROXY is set to "*" so every host is exempt. Both cases are set, as tools
-// read either.
-func proxyBypass() []string {
-	return []string{
-		"HTTP_PROXY=", "http_proxy=",
-		"HTTPS_PROXY=", "https_proxy=",
-		"ALL_PROXY=", "all_proxy=",
-		"NO_PROXY=*", "no_proxy=*",
-	}
-}
-
-// goPrivate returns a GOPRIVATE value that includes module, preserving any
-// existing entries so the caller's configuration is not discarded.
-func goPrivate(module, existing string) string {
-	module = strings.TrimSpace(module)
-	existing = strings.TrimSpace(existing)
-	if existing == "" {
-		return module
-	}
-	return module + "," + existing
 }
 
 // BinaryName is the executable/command name, defaulting to the last element of
@@ -314,25 +263,26 @@ func (c Config) BinaryName() string {
 
 // DisplayName is the human-facing name used in messages, defaulting to the
 // binary (and thus the module) name when Name is unset.
-func (c Config) DisplayName() string { return cmp.Or(c.Name, c.BinaryName()) }
+func (c Config) DisplayName() string { return updater.DisplayName(c.Name, c.BinaryName()) }
+
+// VersionLink renders v as a clickable link to its release or commit, delegating
+// to the embedded [clive.Info]. It lets [Config] satisfy [updater.Tool].
+func (c Config) VersionLink(v string) string { return c.Info.VersionLink(v) }
+
+// LatestRef returns the highest semver tag in the tool's repository, delegating
+// to [clive.Info.LatestTag]. It lets [Config] satisfy [updater.Tool].
+func (c Config) LatestRef(ctx context.Context, client *http.Client) (string, error) {
+	return c.Info.LatestTag(ctx, client)
+}
 
 // branch is the Dev channel's ref, defaulting to defaultBranch.
 func (c Config) branch() string { return cmp.Or(c.Branch, defaultBranch) }
 
-// installDir is the GOBIN the binary is installed into: Dir when set (with a
-// leading "~/" and any env vars expanded), else ~/.local/bin. It returns "" only
-// when the home directory cannot be resolved and no Dir was given, leaving GOBIN
-// unset so go install falls back to its own default.
-func (c Config) installDir() string {
-	if c.Dir != "" {
-		return xfilepath.Expand(c.Dir)
-	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return ""
-	}
-	return filepath.Join(home, defaultDir)
-}
+// installDir is the GOBIN the binary is installed into via [updater.InstallDir]:
+// Dir when set (with a leading "~" and any env vars expanded), else ~/.local/bin.
+// It returns "" only when no Dir was given and the home directory cannot be
+// resolved, leaving GOBIN unset so go install falls back to its own default.
+func (c Config) installDir() string { return updater.InstallDir(c.Dir) }
 
 // installTarget is the `go install` argument for channel: "module@latest" for
 // the stable channel, "module@<branch>" for dev.

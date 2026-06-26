@@ -3,7 +3,7 @@ package brew_test
 import (
 	"testing"
 
-	"github.com/gechr/clive/update/brew"
+	"github.com/gechr/clive/updater/brew"
 	"github.com/stretchr/testify/require"
 )
 
@@ -36,17 +36,6 @@ func TestConflictPolicyZeroValueWarns(t *testing.T) {
 	// The zero value must default to warning, so a Config that does not set
 	// OnConflict leaves stray installs in place but flags them.
 	require.Equal(t, brew.ConflictWarn, brew.Config{}.OnConflict)
-}
-
-func TestProxyBypass(t *testing.T) {
-	t.Parallel()
-
-	require.Equal(t, []string{
-		"HTTP_PROXY=", "http_proxy=",
-		"HTTPS_PROXY=", "https_proxy=",
-		"ALL_PROXY=", "all_proxy=",
-		"NO_PROXY=*", "no_proxy=*",
-	}, brew.ProxyBypass())
 }
 
 func TestBinaryDefaultsToFormula(t *testing.T) {

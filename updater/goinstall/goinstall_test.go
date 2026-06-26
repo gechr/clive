@@ -4,7 +4,7 @@ import (
 	"testing"
 
 	"github.com/gechr/clive"
-	"github.com/gechr/clive/update/goinstall"
+	"github.com/gechr/clive/updater/goinstall"
 	"github.com/stretchr/testify/require"
 )
 
@@ -71,15 +71,4 @@ func TestModuleVersion(t *testing.T) {
 	require.Empty(t, goinstall.ModuleVersion([]byte("example: go1.26.2\n")),
 		"a binary without module info reports no version")
 	require.Empty(t, goinstall.ModuleVersion(nil))
-}
-
-func TestProxyBypass(t *testing.T) {
-	t.Parallel()
-
-	require.Equal(t, []string{
-		"HTTP_PROXY=", "http_proxy=",
-		"HTTPS_PROXY=", "https_proxy=",
-		"ALL_PROXY=", "all_proxy=",
-		"NO_PROXY=*", "no_proxy=*",
-	}, goinstall.ProxyBypass())
 }
