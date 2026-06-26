@@ -4,7 +4,10 @@ import (
 	"context"
 	"io"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -42,7 +45,14 @@ func errTransport() http.RoundTripper {
 }
 
 func cfg() brew.Config {
-	return brew.Config{Info: clive.Info{Module: "github.com/me/myapp"}, Formula: "myapp"}
+	return brew.Config{
+		Info:    clive.Info{Module: "github.com/example/myapp"},
+		Formula: "myapp",
+	}
+}
+
+func differentRef(current, latest string) bool {
+	return current != latest
 }
 
 func TestNewer(t *testing.T) {
@@ -86,9 +96,11 @@ func TestReadWriteStamp(t *testing.T) {
 	c := newChecker(cfg(), WithCacheDir(t.TempDir()))
 	c.writeStamp("v3.1.4")
 
-	latest, when, cached := c.readStamp()
+	st, when, cached := c.readStamp()
 	require.True(t, cached)
-	require.Equal(t, "v3.1.4", latest)
+	require.Equal(t, "v3.1.4", st.Latest)
+	require.Empty(t, st.Track)
+	require.Empty(t, st.Skipped)
 	require.WithinDuration(t, time.Now(), when, time.Minute)
 }
 
@@ -106,9 +118,9 @@ func TestRefreshWritesLatest(t *testing.T) {
 	c := newChecker(cfg(), WithCacheDir(t.TempDir()), WithTransport(tagsTransport()))
 	c.refresh()
 
-	latest, _, cached := c.readStamp()
+	st, _, cached := c.readStamp()
 	require.True(t, cached)
-	require.Equal(t, "v1.2.0", latest)
+	require.Equal(t, "v1.2.0", st.Latest)
 }
 
 func TestRefreshUsesLatestFunc(t *testing.T) {
@@ -119,9 +131,9 @@ func TestRefreshUsesLatestFunc(t *testing.T) {
 	))
 	c.refresh()
 
-	latest, _, cached := c.readStamp()
+	st, _, cached := c.readStamp()
 	require.True(t, cached)
-	require.Equal(t, "v9.9.9", latest, "the override replaces the GitHub-tags lookup")
+	require.Equal(t, "v9.9.9", st.Latest, "the override replaces the GitHub-tags lookup")
 }
 
 func TestRefreshThrottlesOnError(t *testing.T) {
@@ -133,10 +145,26 @@ func TestRefreshThrottlesOnError(t *testing.T) {
 	c := newChecker(cfg(), WithCacheDir(dir), WithTransport(errTransport()))
 	c.refresh()
 
-	latest, when, cached := c.readStamp()
+	st, when, cached := c.readStamp()
 	require.True(t, cached)
-	require.Equal(t, "v1.0.0", latest, "a failed refresh preserves the prior value")
+	require.Equal(t, "v1.0.0", st.Latest, "a failed refresh preserves the prior value")
 	require.WithinDuration(t, time.Now(), when, time.Minute, "and re-stamps to honour the cooldown")
+	require.True(t, st.Failed)
+}
+
+func TestRefreshErrorSuppressesPriorUpdate(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	c := newChecker(cfg(), WithCacheDir(dir), WithCurrentVersion("v1.0.0"))
+	c.writeStamp("v2.0.0")
+
+	newChecker(cfg(), WithCacheDir(dir), WithTransport(errTransport())).refresh()
+
+	res, pending := Pending(cfg(), WithCacheDir(dir), WithCurrentVersion("v1.0.0"))
+	require.False(t, pending)
+	require.Equal(t, "v2.0.0", res.LatestRef)
+	require.True(t, res.LatestIsUpdate)
 }
 
 func TestShouldHintWhenBehind(t *testing.T) {
@@ -174,4 +202,341 @@ func TestShouldHintRereadsCache(t *testing.T) {
 	latest, ok := c.shouldHint()
 	require.True(t, ok)
 	require.Equal(t, "v2.0.0", latest)
+}
+
+func TestPendingSharesHintVerdictAndFields(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	display := func(ref string) string { return strings.TrimPrefix(ref, "v") }
+	opts := []Option{
+		WithCacheDir(dir),
+		WithCurrentVersion("v1.0.0"),
+		WithChannel("stable"),
+		WithRefDisplay(display),
+	}
+	c := newChecker(cfg(), opts...)
+	c.writeStamp("v1.2.0")
+
+	res, pending := Pending(cfg(), opts...)
+	latest, hint := c.shouldHint()
+
+	require.True(t, pending)
+	require.True(t, hint)
+	require.Equal(t, latest, res.LatestRef)
+	require.Equal(t, Result{
+		CurrentRef:     "v1.0.0",
+		LatestRef:      "v1.2.0",
+		LatestIsUpdate: true,
+		Track:          "stable",
+		CurrentDisplay: "1.0.0",
+		LatestDisplay:  "1.2.0",
+	}, res)
+}
+
+func TestPendingWithNoTerminalAndKillSwitch(t *testing.T) {
+	dir := t.TempDir()
+	c := newChecker(cfg(), WithCacheDir(dir), WithCurrentVersion("v1.0.0"))
+	c.writeStamp("v1.2.0")
+
+	stderr := os.Stderr
+	f, err := os.CreateTemp(t.TempDir(), "stderr")
+	require.NoError(t, err)
+	defer func() { os.Stderr = stderr }()
+	os.Stderr = f
+
+	res, pending := Pending(
+		cfg(),
+		WithCacheDir(dir),
+		WithCurrentVersion("v1.0.0"),
+	)
+	require.True(t, pending)
+	require.Equal(t, "v1.2.0", res.LatestRef)
+
+	var calls atomic.Int32
+	t.Setenv("MYAPP_NO_UPDATE_CHECK", "1")
+	res, pending = Pending(
+		cfg(),
+		WithCacheDir(t.TempDir()),
+		WithCurrentVersion("v1.0.0"),
+		WithLatestFunc(func(context.Context) (string, error) {
+			calls.Add(1)
+			return "v9.9.9", nil
+		}),
+	)
+	require.False(t, pending)
+	require.Empty(t, res)
+
+	flush := Check(
+		cfg(),
+		WithCacheDir(t.TempDir()),
+		WithCurrentVersion("v1.0.0"),
+		WithLatestFunc(func(context.Context) (string, error) {
+			calls.Add(1)
+			return "v9.9.9", nil
+		}),
+	)
+	flush()
+	require.True(t, AwaitRefresh(10*time.Millisecond))
+	require.Zero(t, calls.Load())
+}
+
+func TestCheckRefreshesWhenHintSuppressedByNoTerminal(t *testing.T) {
+	dir := t.TempDir()
+
+	stderr := os.Stderr
+	f, err := os.CreateTemp(t.TempDir(), "stderr")
+	require.NoError(t, err)
+	defer func() { os.Stderr = stderr }()
+	os.Stderr = f
+
+	flush := Check(
+		cfg(),
+		WithCacheDir(dir),
+		WithCurrentVersion("v1.0.0"),
+		WithLatestFunc(func(context.Context) (string, error) {
+			return "v1.2.0", nil
+		}),
+	)
+	flush()
+	require.True(t, AwaitRefresh(time.Second))
+
+	info, err := f.Stat()
+	require.NoError(t, err)
+	require.Zero(t, info.Size())
+
+	res, pending := Pending(cfg(), WithCacheDir(dir), WithCurrentVersion("v1.0.0"))
+	require.True(t, pending)
+	require.Equal(t, "v1.2.0", res.LatestRef)
+}
+
+func TestSkipSuppressesUntilDifferentRef(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		current    string
+		skipped    string
+		next       string
+		comparator func(string, string) bool
+	}{
+		{
+			name:    "semver",
+			current: "v1.0.0",
+			skipped: "v1.2.0",
+			next:    "v1.3.0",
+		},
+		{
+			name:       "opaque ref",
+			current:    "aaaaaaaaaaaa",
+			skipped:    "bbbbbbbbbbbb",
+			next:       "cccccccccccc",
+			comparator: differentRef,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			dir := t.TempDir()
+			opts := []Option{WithCacheDir(dir), WithCurrentVersion(tc.current)}
+			if tc.comparator != nil {
+				opts = append(opts, WithComparator(tc.comparator))
+			}
+			c := newChecker(cfg(), opts...)
+			c.writeStamp(tc.skipped)
+
+			_, pending := Pending(cfg(), opts...)
+			require.True(t, pending)
+
+			require.NoError(t, Skip(cfg(), tc.skipped, opts...))
+			res, pending := Pending(cfg(), opts...)
+			require.False(t, pending)
+			require.True(t, res.LatestIsUpdate)
+
+			c.writeStamp(tc.next)
+			res, pending = Pending(cfg(), opts...)
+			require.True(t, pending)
+			require.Equal(t, tc.next, res.LatestRef)
+		})
+	}
+}
+
+func TestOldFormatCacheReadsCleanly(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(
+		filepath.Join(dir, stampName),
+		[]byte("v2.0.0\n"),
+		stampPerm,
+	))
+
+	c := newChecker(cfg(), WithCacheDir(dir))
+	st, _, cached := c.readStamp()
+	require.True(t, cached)
+	require.Equal(t, "v2.0.0", st.Latest)
+	require.Empty(t, st.Skipped)
+
+	res, pending := Pending(cfg(), WithCacheDir(dir), WithCurrentVersion("v1.0.0"))
+	require.True(t, pending)
+	require.Equal(t, "v2.0.0", res.LatestRef)
+}
+
+func TestEmptyCacheIsNotPending(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, stampName), nil, stampPerm))
+
+	res, pending := Pending(cfg(), WithCacheDir(dir), WithCurrentVersion("v1.0.0"))
+	require.False(t, pending)
+	require.Empty(t, res.LatestRef)
+}
+
+func TestUnreadableCacheIsNotPending(t *testing.T) {
+	dir := t.TempDir()
+	cacheDir := filepath.Join(dir, "not-a-directory")
+	require.NoError(t, os.WriteFile(cacheDir, []byte("not a directory"), stampPerm))
+
+	_, pending := Pending(
+		cfg(),
+		WithCacheDir(cacheDir),
+		WithCurrentVersion("v1.0.0"),
+		WithLatestFunc(func(context.Context) (string, error) {
+			return "v1.2.0", nil
+		}),
+	)
+	require.True(t, AwaitRefresh(time.Second))
+	require.False(t, pending)
+}
+
+func TestCustomComparatorGovernsHintPendingAndResurface(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	opts := []Option{
+		WithCacheDir(dir),
+		WithCurrentVersion("alpha"),
+		WithComparator(differentRef),
+	}
+	c := newChecker(cfg(), opts...)
+
+	c.writeStamp("alpha")
+	res, pending := Pending(cfg(), opts...)
+	_, hint := c.shouldHint()
+	require.False(t, pending)
+	require.False(t, hint)
+	require.False(t, res.LatestIsUpdate)
+
+	c.writeStamp("beta")
+	res, pending = Pending(cfg(), opts...)
+	latest, hint := c.shouldHint()
+	require.True(t, pending)
+	require.True(t, hint)
+	require.Equal(t, latest, res.LatestRef)
+
+	require.NoError(t, Skip(cfg(), "beta", opts...))
+	res, pending = Pending(cfg(), opts...)
+	_, hint = c.shouldHint()
+	require.False(t, pending)
+	require.False(t, hint)
+	require.True(t, res.LatestIsUpdate)
+
+	c.writeStamp("gamma")
+	res, pending = Pending(cfg(), opts...)
+	latest, hint = c.shouldHint()
+	require.True(t, pending)
+	require.True(t, hint)
+	require.Equal(t, latest, res.LatestRef)
+}
+
+func TestRefDisplayAppliesToPendingAndHintFields(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	display := func(ref string) string {
+		if len(ref) > 7 {
+			return ref[:7]
+		}
+		return ref
+	}
+	opts := []Option{
+		WithCacheDir(dir),
+		WithCurrentVersion("111111111111"),
+		WithComparator(differentRef),
+		WithRefDisplay(display),
+	}
+	c := newChecker(brew.Config{Formula: "myapp"}, opts...)
+	c.writeStamp("222222222222")
+
+	res, pending := Pending(brew.Config{Formula: "myapp"}, opts...)
+	require.True(t, pending)
+	require.Equal(t, "1111111", res.CurrentDisplay)
+	require.Equal(t, "2222222", res.LatestDisplay)
+
+	installed, latest := c.hintRefs(res)
+	require.Equal(t, "1111111", installed)
+	require.Equal(t, "2222222", latest)
+}
+
+func TestTrackSwitchDoesNotCompareOtherTrackCache(t *testing.T) {
+	dir := t.TempDir()
+	newChecker(
+		cfg(),
+		WithCacheDir(dir),
+		WithCurrentVersion("v1.0.0"),
+		WithChannel("stable"),
+	).writeStamp("v2.0.0")
+
+	started := make(chan struct{})
+	release := make(chan struct{})
+	opts := []Option{
+		WithCacheDir(dir),
+		WithCurrentVersion("v1.0.0"),
+		WithChannel("rolling"),
+		WithLatestFunc(func(context.Context) (string, error) {
+			close(started)
+			<-release
+			return "v3.0.0", nil
+		}),
+	}
+
+	res, pending := Pending(cfg(), opts...)
+	require.False(t, pending)
+	require.Equal(t, "rolling", res.Track)
+	require.Empty(t, res.LatestRef)
+	<-started
+
+	close(release)
+	require.True(t, AwaitRefresh(time.Second))
+
+	res, pending = Pending(cfg(), opts...)
+	require.True(t, pending)
+	require.Equal(t, "v3.0.0", res.LatestRef)
+}
+
+func TestAwaitRefreshNoOpAndTimeout(t *testing.T) {
+	require.True(t, AwaitRefresh(time.Millisecond))
+
+	started := make(chan struct{})
+	release := make(chan struct{})
+	_, _ = Pending(
+		cfg(),
+		WithCacheDir(t.TempDir()),
+		WithCurrentVersion("v1.0.0"),
+		WithLatestFunc(func(context.Context) (string, error) {
+			close(started)
+			<-release
+			return "v1.2.0", nil
+		}),
+	)
+	<-started
+
+	start := time.Now()
+	require.False(t, AwaitRefresh(20*time.Millisecond))
+	require.Less(t, time.Since(start), 200*time.Millisecond)
+
+	close(release)
+	require.True(t, AwaitRefresh(time.Second))
 }
