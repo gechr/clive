@@ -221,6 +221,7 @@ func (r *runner) report(ctx context.Context) error {
 	current := version.RemovePrefix(r.installedVersion(ctx))
 	if old != "" && current != "" && old != current {
 		clog.Info().
+			Symbol("🎉").
 			Str("old", r.cfg.Info.VersionLink(old)).
 			Str("new", r.cfg.Info.VersionLink(current)).
 			Msgf("Updated %s", r.cfg.DisplayName())
@@ -307,6 +308,7 @@ func (r *runner) resolveConflict(path string) {
 			Msgf("Failed to remove a stray %s installation", r.cfg.DisplayName())
 	} else {
 		clog.Info().
+			Symbol("🗑️").
 			Str("path", path).
 			Msgf("Removed a stray %s installation", r.cfg.DisplayName())
 	}
