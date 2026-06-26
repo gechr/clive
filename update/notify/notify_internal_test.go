@@ -152,7 +152,7 @@ func TestRefreshThrottlesOnError(t *testing.T) {
 	require.True(t, st.Failed)
 }
 
-func TestRefreshErrorSuppressesPriorUpdate(t *testing.T) {
+func TestRefreshErrorKeepsKnownUpdate(t *testing.T) {
 	t.Parallel()
 
 	dir := t.TempDir()
@@ -162,9 +162,63 @@ func TestRefreshErrorSuppressesPriorUpdate(t *testing.T) {
 	newChecker(cfg(), WithCacheDir(dir), WithTransport(errTransport())).refresh()
 
 	res, pending := Pending(cfg(), WithCacheDir(dir), WithCurrentVersion("v1.0.0"))
-	require.False(t, pending)
+	require.True(t, pending, "a transient failure must not erase a known update")
 	require.Equal(t, "v2.0.0", res.LatestRef)
 	require.True(t, res.LatestIsUpdate)
+	require.True(t, res.Failed, "but the stale-data flag is surfaced")
+	require.False(t, res.Dismissed)
+}
+
+func TestFirstRunFailureIsNotPending(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	newChecker(cfg(), WithCacheDir(dir), WithTransport(errTransport())).refresh()
+
+	res, pending := Pending(cfg(), WithCacheDir(dir), WithCurrentVersion("v1.0.0"))
+	require.False(t, pending, "a failure with no prior success shows nothing")
+	require.Empty(t, res.LatestRef)
+	require.True(t, res.Failed)
+}
+
+func TestDismissedRefSetsDismissedAndResurfaces(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	opts := []Option{WithCacheDir(dir), WithCurrentVersion("v1.0.0")}
+	c := newChecker(cfg(), opts...)
+	c.writeStamp("v2.0.0")
+
+	require.NoError(t, Skip(cfg(), "v2.0.0", opts...))
+	res, pending := Pending(cfg(), opts...)
+	require.False(t, pending, "a dismissed ref is suppressed")
+	require.True(t, res.Dismissed, "but reported distinctly from no update")
+	require.True(t, res.LatestIsUpdate, "the comparator verdict is unchanged")
+	require.False(t, res.Failed)
+
+	c.writeStamp("v3.0.0")
+	res, pending = Pending(cfg(), opts...)
+	require.True(t, pending, "a newer ref supersedes the dismissal")
+	require.False(t, res.Dismissed)
+}
+
+func TestPendingAndHintAgreeThroughFailure(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	opts := []Option{WithCacheDir(dir), WithCurrentVersion("v1.0.0")}
+	c := newChecker(cfg(), opts...)
+	c.writeStamp("v2.0.0")
+
+	// Fail the refresh: the cache keeps v2.0.0 with Failed set.
+	newChecker(cfg(), WithCacheDir(dir), WithTransport(errTransport())).refresh()
+
+	res, pending := Pending(cfg(), opts...)
+	_, hint := c.shouldHint()
+	require.True(t, pending, "Pending still reports the known update")
+	require.True(t, hint, "and the Check hint agrees")
+	require.Equal(t, pending, hint)
+	require.True(t, res.Failed)
 }
 
 func TestShouldHintWhenBehind(t *testing.T) {

@@ -27,8 +27,18 @@
 // [Pending] reports no update. A non-terminal stderr only suppresses the
 // auto-printed hint returned by [Check]; it does not gate [Pending].
 //
+// The verdict is failure-tolerant: a background refresh that fails re-stamps the
+// last successfully fetched ref to honour the cooldown and records the failure,
+// but a known, still-valid newer ref keeps reporting pending. The failure governs
+// only refresh scheduling and the cooldown, never whether an update is shown, so a
+// transient outage cannot silence an update the tool already discovered. A check
+// that has never succeeded has no cached ref and so reports nothing.
+//
 // [Pending] exposes the same verdict without printing so hosts can render update
-// state in their own UI. [Skip] records a dismissed ref in the same cache. The
+// state in their own UI. Its [Result] also carries Failed (the last refresh
+// failed, so the ref may be stale) and Dismissed (the ref was dismissed via
+// [Skip]), letting a host distinguish no update, a known-but-stale update, and a
+// dismissed update. [Skip] records a dismissed ref in the same cache. The
 // dismissal suppresses hints only while the latest known ref is exactly the
 // dismissed ref; when the latest ref changes, normal comparator-based behavior
 // resumes, including for non-semver refs where ordering is undefined. The cache
@@ -145,6 +155,15 @@ type Result struct {
 	LatestRef string
 	// LatestIsUpdate reports the comparator verdict before dismissal is applied.
 	LatestIsUpdate bool
+	// Failed reports that the last background refresh failed, so LatestRef may be
+	// stale - it is the last successfully fetched ref, not a fresh lookup. A known
+	// update is still reported through a transient failure; this flag only lets a
+	// host annotate that the data behind it could not be confirmed this run.
+	Failed bool
+	// Dismissed reports that LatestRef was dismissed via [Skip] and still matches
+	// the dismissed ref, so the update is suppressed. It distinguishes "you
+	// dismissed this" from "no update". A newer LatestRef clears it.
+	Dismissed bool
 	// Track is the active release track name.
 	Track string
 	// CurrentDisplay is CurrentRef after [WithRefDisplay].
@@ -153,10 +172,14 @@ type Result struct {
 	LatestDisplay string
 }
 
-// Pending returns the cached update verdict without printing. The bool reports
-// whether an update is pending after the comparator, track, cache, and dismissal
-// state are applied. It uses the same stale-cache background refresh path as
-// [Check], but unlike the auto-printed hint it does not require a TTY.
+// Pending returns the cached update verdict without printing. The bool is
+// LatestIsUpdate && !Dismissed: it reports whether there is an update to act on
+// after the comparator, track, cache, and dismissal state are applied. It is not
+// gated by a failed refresh - a known newer ref keeps reporting true through a
+// transient failure - so consult [Result.Failed] to learn the data may be stale
+// and [Result.Dismissed] to tell a dismissal from no update. It uses the same
+// stale-cache background refresh path as [Check], but unlike the auto-printed
+// hint it does not require a TTY.
 func Pending(cfg brew.Config, opts ...Option) (Result, bool) {
 	c := newChecker(cfg, opts...)
 	if os.Getenv(c.envVar()) != "" {
@@ -324,14 +347,18 @@ func (c *checker) pending() (Result, bool) {
 	}
 	res.LatestRef = st.Latest
 	res.LatestDisplay = c.display(st.Latest)
+	res.Failed = st.Failed
+	// A check that has never succeeded leaves Latest empty, so the failure case on
+	// a first run reports not-pending here regardless of res.Failed.
 	if st.Latest == "" {
 		return res, false
 	}
 	res.LatestIsUpdate = c.comparator(c.current, st.Latest)
-	if st.Failed {
-		return res, false
-	}
-	if st.Skipped != "" && st.Latest == st.Skipped {
+	// Failure is deliberately not consulted below: a known, still-valid newer ref
+	// keeps reporting pending through a transient refresh failure. st.Failed only
+	// drives refresh scheduling and the cooldown re-stamp, recorded on Result.
+	res.Dismissed = st.Skipped != "" && st.Latest == st.Skipped
+	if res.Dismissed {
 		return res, false
 	}
 	return res, res.LatestIsUpdate
