@@ -1,6 +1,7 @@
 package notify
 
 import (
+	"context"
 	"io"
 	"net/http"
 	"strings"
@@ -108,6 +109,19 @@ func TestRefreshWritesLatest(t *testing.T) {
 	latest, _, cached := c.readStamp()
 	require.True(t, cached)
 	require.Equal(t, "v1.2.0", latest)
+}
+
+func TestRefreshUsesLatestFunc(t *testing.T) {
+	t.Parallel()
+
+	c := newChecker(cfg(), WithCacheDir(t.TempDir()), WithLatestFunc(
+		func(context.Context) (string, error) { return "v9.9.9", nil },
+	))
+	c.refresh()
+
+	latest, _, cached := c.readStamp()
+	require.True(t, cached)
+	require.Equal(t, "v9.9.9", latest, "the override replaces the GitHub-tags lookup")
 }
 
 func TestRefreshThrottlesOnError(t *testing.T) {

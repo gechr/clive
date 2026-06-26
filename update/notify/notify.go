@@ -20,6 +20,11 @@
 // The check is silenced by the per-tool kill switch MYAPP_NO_UPDATE_CHECK
 // (derived from the binary name) and by a non-terminal stderr, and the network
 // is touched at most once per cooldown.
+//
+// By default "latest" is the highest semver tag in the tool's GitHub repository.
+// A tool whose releases are not readable GitHub tags - a private repo, or one
+// distributed from an artifact bucket - overrides the lookup with
+// [WithLatestFunc] while keeping the same cache, cooldown, and output.
 package notify
 
 import (
@@ -115,6 +120,20 @@ func WithColor(c color.Color) Option {
 	return func(ck *checker) { ck.color = c }
 }
 
+// LatestFunc reports the latest released version of the tool, such as "v1.2.3"
+// (a leading "v" is optional). It is called only on a stale-cache refresh, off
+// the calling path, and bounded by the same lookupTimeout as the default check.
+type LatestFunc func(ctx context.Context) (string, error)
+
+// WithLatestFunc overrides how a refresh discovers the latest version. By
+// default the latest version is the highest semver tag in the tool's GitHub
+// repository ([clive.Info.LatestTag]); a tool whose releases are not published
+// as readable GitHub tags - e.g. a private repo distributed from an artifact
+// bucket - supplies its own lookup here.
+func WithLatestFunc(fn LatestFunc) Option {
+	return func(c *checker) { c.latest = fn }
+}
+
 // checker holds the resolved configuration for one check.
 type checker struct {
 	cfg      brew.Config
@@ -122,6 +141,7 @@ type checker struct {
 	client   *http.Client
 	cacheDir string
 	color    color.Color
+	latest   LatestFunc
 }
 
 // newChecker builds a checker with real-run defaults, then applies opts.
@@ -132,6 +152,11 @@ func newChecker(cfg brew.Config, opts ...Option) *checker {
 		client:   &http.Client{Timeout: lookupTimeout},
 		cacheDir: defaultCacheDir(cfg.BinaryName()),
 		color:    lipgloss.Color(updateColor),
+	}
+	// Default to the GitHub-tags lookup, reading c.client at call time so a
+	// WithTransport seam still applies; WithLatestFunc replaces it wholesale.
+	c.latest = func(ctx context.Context) (string, error) {
+		return c.cfg.Info.LatestTag(ctx, c.client)
 	}
 	for _, opt := range opts {
 		opt(c)
@@ -176,7 +201,7 @@ func (c *checker) refresh() {
 	ctx, cancel := context.WithTimeout(context.Background(), lookupTimeout)
 	defer cancel()
 
-	latest, err := c.cfg.Info.LatestTag(ctx, c.client)
+	latest, err := c.latest(ctx)
 	if err != nil {
 		clog.Debug().Err(err).Msg("Update check failed")
 		prev, _, _ := c.readStamp()
