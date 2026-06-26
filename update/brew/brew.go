@@ -94,6 +94,9 @@ type Config struct {
 	// OnConflict decides how non-Homebrew copies of the binary on PATH are
 	// handled; the zero value warns that each one may shadow the brew install.
 	OnConflict ConflictPolicy
+	// NoProxy clears the proxy variables for the brew subprocesses, so an update
+	// bypasses a proxy that cannot reach Homebrew or the formula's source.
+	NoProxy bool
 }
 
 // Check reports whether a newer release of cfg is available, without
@@ -355,11 +358,28 @@ func (r *runner) brewSilent(ctx context.Context, args ...string) {
 	_ = r.brewCmd(ctx, args...).Run()
 }
 
-// brewCmd builds a brew command with Homebrew's env-hint noise suppressed.
+// brewCmd builds a brew command with Homebrew's env-hint noise suppressed,
+// clearing the proxy when cfg.NoProxy is set.
 func (r *runner) brewCmd(ctx context.Context, args ...string) *exec.Cmd {
 	cmd := exec.CommandContext(ctx, r.brew, args...) //nolint:gosec // controlled args
 	cmd.Env = append(os.Environ(), "HOMEBREW_NO_ENV_HINTS=1")
+	if r.cfg.NoProxy {
+		cmd.Env = append(cmd.Env, proxyBypass()...)
+	}
 	return cmd
+}
+
+// proxyBypass returns env entries that disable any inherited proxy: each proxy
+// variable is blanked (an empty value overrides the inherited one) and NO_PROXY
+// is set to "*" so every host is exempt. Both cases are set, as tools read
+// either.
+func proxyBypass() []string {
+	return []string{
+		"HTTP_PROXY=", "http_proxy=",
+		"HTTPS_PROXY=", "https_proxy=",
+		"ALL_PROXY=", "all_proxy=",
+		"NO_PROXY=*", "no_proxy=*",
+	}
 }
 
 // BinaryName is the executable/command name, defaulting to the formula. Shared

@@ -24,6 +24,17 @@ func TestConflictPolicyZeroValueWarns(t *testing.T) {
 	require.Equal(t, brew.ConflictWarn, brew.Config{}.OnConflict)
 }
 
+func TestProxyBypass(t *testing.T) {
+	t.Parallel()
+
+	require.Equal(t, []string{
+		"HTTP_PROXY=", "http_proxy=",
+		"HTTPS_PROXY=", "https_proxy=",
+		"ALL_PROXY=", "all_proxy=",
+		"NO_PROXY=*", "no_proxy=*",
+	}, brew.ProxyBypass())
+}
+
 func TestBinaryDefaultsToFormula(t *testing.T) {
 	t.Parallel()
 
