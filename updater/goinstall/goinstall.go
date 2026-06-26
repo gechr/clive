@@ -48,6 +48,9 @@ const (
 	Dev
 )
 
+// Config satisfies the metadata interface notify consumes.
+var _ updater.Tool = Config{}
+
 // ChannelFor maps a --dev flag to a Channel; unset is Latest. Unlike Homebrew,
 // `go install` has no separate "upgrade" verb - @latest always resolves to the
 // newest tag - so stable and the default coincide and only --dev branches off.
@@ -93,10 +96,7 @@ func Check(ctx context.Context, cfg Config) error {
 		return nil
 	}
 	latest, _ := cfg.Info.Latest(ctx)
-	clog.Info().
-		Str("current", cfg.Info.VersionLink(clive.Current())).
-		Str("latest", cfg.Info.VersionLink(latest)).
-		Msgf("An update is available; run `%s update`", cfg.DisplayName())
+	updater.HintFor(cfg, clive.Current(), latest)
 	return nil
 }
 

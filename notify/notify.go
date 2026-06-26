@@ -550,25 +550,9 @@ func (c *checker) envVar() string {
 // 💡 symbol, the installed and latest refs as fields, and a coloured message
 // whose `<binary> update` command is bold.
 func (c *checker) printHint(res Result) {
-	display := c.tool.DisplayName()
-	command := c.tool.BinaryName() + " update"
-
-	msg := display + " is outdated! Run '" + command + "' to upgrade"
-	if !clog.ColorsDisabled() {
-		style := lipgloss.NewStyle().Foreground(c.color)
-		msg = style.Render(display+" is outdated! Run '") +
-			style.Bold(true).Render(command) +
-			style.Render("' to upgrade")
-	}
-
 	installed, latest := c.hintRefs(res)
-
 	fmt.Fprintln(os.Stderr)
-	clog.Warn().
-		Symbol("💡").
-		Str("installed", installed).
-		Str("latest", latest).
-		Msg(msg)
+	updater.Hint(c.tool.DisplayName(), c.tool.BinaryName(), installed, latest, c.color)
 }
 
 // hintRefs returns the rendered installed/latest fields used by printHint.

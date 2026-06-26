@@ -63,6 +63,9 @@ const (
 	ConflictIgnore
 )
 
+// Config satisfies the metadata interface notify consumes.
+var _ updater.Tool = Config{}
+
 // ChannelFor maps a --dev/--stable flag pair to a Channel; neither set is
 // Upgrade.
 func ChannelFor(dev, stable bool) Channel {
@@ -117,10 +120,7 @@ func Check(ctx context.Context, cfg Config) error {
 		return nil
 	}
 	latest, _ := cfg.Info.Latest(ctx)
-	clog.Info().
-		Str("current", cfg.Info.VersionLink(clive.Current())).
-		Str("latest", cfg.Info.VersionLink(latest)).
-		Msgf("An update is available; run `%s update`", cfg.DisplayName())
+	updater.HintFor(cfg, clive.Current(), latest)
 	return nil
 }
 
