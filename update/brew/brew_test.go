@@ -16,6 +16,14 @@ func TestChannelFor(t *testing.T) {
 	require.Equal(t, brew.Dev, brew.ChannelFor(true, true), "dev takes precedence")
 }
 
+func TestConflictPolicyZeroValueWarns(t *testing.T) {
+	t.Parallel()
+
+	// The zero value must default to warning, so a Config that does not set
+	// OnConflict leaves stray installs in place but flags them.
+	require.Equal(t, brew.ConflictWarn, brew.Config{}.OnConflict)
+}
+
 func TestBinaryDefaultsToFormula(t *testing.T) {
 	t.Parallel()
 

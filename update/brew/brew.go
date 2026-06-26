@@ -46,6 +46,20 @@ const (
 	Dev
 )
 
+// ConflictPolicy decides what an update does with copies of the binary found on
+// PATH outside Homebrew, which would otherwise shadow the brew install.
+type ConflictPolicy int
+
+const (
+	// ConflictWarn leaves stray non-Homebrew copies in place but warns about each
+	// one. It is the zero value, and thus the default.
+	ConflictWarn ConflictPolicy = iota
+	// ConflictUninstall removes stray copies so the brew install is authoritative.
+	ConflictUninstall
+	// ConflictIgnore leaves stray copies in place silently.
+	ConflictIgnore
+)
+
 // ChannelFor maps a --dev/--stable flag pair to a Channel; neither set is
 // Upgrade.
 func ChannelFor(dev, stable bool) Channel {
@@ -77,9 +91,9 @@ type Config struct {
 	// Binary is the executable name to clean up non-brew copies of; defaults to
 	// Formula.
 	Binary string
-	// KeepOtherInstalls leaves non-Homebrew copies of the binary in place;
-	// otherwise they are removed so the brew install is authoritative.
-	KeepOtherInstalls bool
+	// OnConflict decides how non-Homebrew copies of the binary on PATH are
+	// handled; the zero value warns that each one may shadow the brew install.
+	OnConflict ConflictPolicy
 }
 
 // Check reports whether a newer release of cfg is available, without
@@ -245,11 +259,11 @@ func (r *runner) installedVersion(ctx context.Context) string {
 	return fields[len(fields)-1]
 }
 
-// cleanup removes copies of the binary found on PATH outside Homebrew, so the
-// brew install is the one that runs. It is best-effort and never fails the
-// update.
+// cleanup handles copies of the binary found on PATH outside Homebrew, so the
+// brew install is the one that runs. Its action is governed by cfg.OnConflict.
+// It is best-effort and never fails the update.
 func (r *runner) cleanup(ctx context.Context) {
-	if r.cfg.KeepOtherInstalls {
+	if r.cfg.OnConflict == ConflictIgnore {
 		return
 	}
 	out, err := r.brewCmd(ctx, "--prefix").Output()
@@ -273,16 +287,28 @@ func (r *runner) cleanup(ctx context.Context) {
 		if !executable && !symlink {
 			continue
 		}
-		if err := os.Remove(path); err != nil {
-			clog.Warn().
-				Str("path", path).
-				Err(err).
-				Msgf("Could not remove a stray %s installation", r.cfg.DisplayName())
-		} else {
-			clog.Info().
-				Str("path", path).
-				Msgf("Removed a stray %s installation", r.cfg.DisplayName())
-		}
+		r.resolveConflict(path)
+	}
+}
+
+// resolveConflict applies cfg.OnConflict to a single non-Homebrew copy at path,
+// either warning that it shadows the brew install or removing it.
+func (r *runner) resolveConflict(path string) {
+	if r.cfg.OnConflict == ConflictWarn {
+		clog.Warn().
+			Str("path", path).
+			Msgf("A non-Homebrew %s install may shadow the Homebrew install", r.cfg.DisplayName())
+		return
+	}
+	if err := os.Remove(path); err != nil {
+		clog.Warn().
+			Str("path", path).
+			Err(err).
+			Msgf("Failed to remove a stray %s installation", r.cfg.DisplayName())
+	} else {
+		clog.Info().
+			Str("path", path).
+			Msgf("Removed a stray %s installation", r.cfg.DisplayName())
 	}
 }
 
