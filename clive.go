@@ -27,6 +27,7 @@ import (
 	ver "github.com/gechr/clive/version"
 	xansi "github.com/gechr/x/ansi"
 	"github.com/gechr/x/human"
+	xstrings "github.com/gechr/x/strings"
 	"github.com/gechr/x/terminal"
 	goversion "github.com/hashicorp/go-version"
 )
@@ -331,15 +332,5 @@ func isHex(s string) bool {
 	if len(s) < 7 { //nolint:mnd // git --abbrev=7.
 		return false
 	}
-	for _, c := range s {
-		switch {
-		case c >= '0' && c <= '9',
-			c >= 'a' && c <= 'f',
-			c >= 'A' && c <= 'F':
-			continue
-		default:
-			return false
-		}
-	}
-	return true
+	return xstrings.IsHex(s)
 }
