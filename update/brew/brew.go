@@ -97,6 +97,9 @@ type Config struct {
 	// NoProxy clears the proxy variables for the brew subprocesses, so an update
 	// bypasses a proxy that cannot reach Homebrew or the formula's source.
 	NoProxy bool
+	// RemoveTaps lists Homebrew taps to untap before installing, so a formula
+	// that has moved to a new tap is not resolved from a stale one. Best-effort.
+	RemoveTaps []string
 }
 
 // Check reports whether a newer release of cfg is available, without
@@ -185,6 +188,7 @@ func (r *runner) reinstall(ctx context.Context, head bool) error {
 
 // install taps (when needed) and installs the formula, optionally from HEAD.
 func (r *runner) install(ctx context.Context, head bool) error {
+	r.removeTaps(ctx)
 	if r.cfg.Tap != "" {
 		if err := r.tap(ctx); err != nil {
 			return err
@@ -205,6 +209,14 @@ func (r *runner) install(ctx context.Context, head bool) error {
 	}
 	r.cleanup(ctx)
 	return r.report(ctx)
+}
+
+// removeTaps untaps each stale tap in cfg, best-effort, so a relocated formula
+// is not resolved from an old tap. Errors (e.g. a tap not present) are ignored.
+func (r *runner) removeTaps(ctx context.Context) {
+	for _, t := range r.cfg.RemoveTaps {
+		r.brewSilent(ctx, "untap", t)
+	}
 }
 
 // tap registers the configured tap (with its git URL for a private tap) so the
