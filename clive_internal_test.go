@@ -35,6 +35,25 @@ func TestInfoRepo(t *testing.T) {
 	}
 }
 
+func TestGoPrivate(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name, module, existing, want string
+	}{
+		{"no existing value", "github.com/x/y", "", "github.com/x/y"},
+		{"prepends to existing", "github.com/x/y", "example.com/*", "github.com/x/y,example.com/*"},
+		{"trims whitespace", "github.com/x/y", "  example.com/*  ", "github.com/x/y,example.com/*"},
+		{"whitespace-only existing", "github.com/x/y", "   ", "github.com/x/y"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			assert.Equal(t, tt.want, goPrivate(tt.module, tt.existing))
+		})
+	}
+}
+
 func TestFormat(t *testing.T) {
 	t.Parallel()
 

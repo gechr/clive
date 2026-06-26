@@ -53,6 +53,14 @@ type Info struct {
 	// Repo is the GitHub "owner/name" used to build release/commit URLs.
 	// If empty and Module starts with "github.com/", Repo is derived from it.
 	Repo string
+
+	// Private resolves Latest via direct version control rather than the public
+	// module proxy, by scoping GOPRIVATE to Module for that one `go list` call.
+	// Set it for a tool published from a private repository, so the lookup uses
+	// the caller's local git credentials (e.g. SSH keys) instead of failing
+	// against a proxy that cannot see the module. It has no effect on a public
+	// module and never mutates the process environment.
+	Private bool
 }
 
 // repo returns Repo, deriving it from Module when unset.
@@ -238,6 +246,9 @@ func (i Info) Latest(ctx context.Context) (string, error) {
 	}
 
 	cmd := exec.CommandContext(ctx, goBin, "list", "-m", "-json", i.Module+"@latest")
+	if i.Private {
+		cmd.Env = append(os.Environ(), "GOPRIVATE="+goPrivate(i.Module, os.Getenv("GOPRIVATE")))
+	}
 	stdout, err := cmd.Output()
 	if err != nil {
 		return "", fmt.Errorf("go list -m: %w", err)
@@ -250,6 +261,18 @@ func (i Info) Latest(ctx context.Context) (string, error) {
 		return "", fmt.Errorf("parse go list output: %w", err)
 	}
 	return result.Version, nil
+}
+
+// goPrivate returns a GOPRIVATE value that includes module, preserving any
+// existing entries so the caller's configuration is not discarded. Both inputs
+// are trimmed so surrounding whitespace never yields a malformed list.
+func goPrivate(module, existing string) string {
+	module = strings.TrimSpace(module)
+	existing = strings.TrimSpace(existing)
+	if existing == "" {
+		return module
+	}
+	return module + "," + existing
 }
 
 // format normalises a non-empty version into the canonical "vX.Y.Z[...]"
