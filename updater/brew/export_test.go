@@ -4,6 +4,6 @@ package brew
 
 var HeadBuild = headBuild
 
-var LinkedKeg = linkedKeg
-
 func (c Config) FormulaRef() string { return c.formulaRef() }
+
+func (c Config) ResolveVersionArg() string { return c.versionArg() }

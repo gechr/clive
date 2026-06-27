@@ -14,7 +14,6 @@ import (
 	"bytes"
 	"cmp"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -100,6 +99,11 @@ type Config struct {
 	// Binary is the executable name to clean up non-brew copies of; defaults to
 	// Formula.
 	Binary string
+	// VersionArg is the single argument passed to the installed binary to make it
+	// print its version, used to read the post-update version back. It is a
+	// "version" subcommand for some tools and a "--version" flag for others, so it
+	// is configurable; the zero value is "version".
+	VersionArg string
 	// OnConflict decides how non-Homebrew copies of the binary on PATH are
 	// handled; the zero value warns that each one may shadow the brew install.
 	OnConflict ConflictPolicy
@@ -248,34 +252,39 @@ func (r *runner) installed(ctx context.Context) bool {
 	return r.brewCmd(ctx, "list", r.cfg.Formula).Run() == nil
 }
 
-// installedVersion returns the formula's active (linked) version via brew, or
-// "". An upgrade links the freshly-installed keg, so the linked keg is the
-// version now on PATH. This reads `brew info --json`, not `brew list --versions`:
-// the latter enumerates every installed keg in arbitrary order, so a stale keg
-// left behind before `brew cleanup` could be reported instead of the new one.
+// installedVersion returns the version reported by the freshly-installed binary
+// itself, by executing `<brew-prefix>/bin/<binary> version`. It invokes the
+// Homebrew copy by its absolute path - never a bare name - so a stray binary
+// earlier on PATH cannot answer in its place.
+//
+// Reading the version from the binary (rather than Homebrew's keg name) keeps the
+// reported "to" version in the same representation as the "from" version
+// ([clive.Current]): both are the binary's own git-describe string. That matters
+// for a --HEAD build, where Homebrew names the keg "HEAD-<hash>" while the binary
+// reports "X.Y.Z-N-g<hash>-dev" - two spellings of one commit that would
+// otherwise look like an update when nothing actually changed. The binary is
+// asked for its version via [Config.VersionArg], which prints [clive.Current].
 func (r *runner) installedVersion(ctx context.Context) string {
-	out, err := r.brewCmd(ctx, "info", "--json=v2", r.cfg.Formula).Output()
+	dir := r.brewBinDir(ctx)
+	if dir == "" {
+		return ""
+	}
+	bin := dir + "/" + r.cfg.BinaryName()
+	out, err := exec.CommandContext(ctx, bin, r.cfg.versionArg()).Output()
 	if err != nil {
 		return ""
 	}
-	return linkedKeg(out)
+	return strings.TrimSpace(string(out))
 }
 
-// brewInfoJSON is the subset of `brew info --json=v2` that names the active keg.
-type brewInfoJSON struct {
-	Formulae []struct {
-		LinkedKeg string `json:"linked_keg"`
-	} `json:"formulae"`
-}
-
-// linkedKeg returns the active (linked) version from `brew info --json=v2`
-// output, or "" when nothing is linked.
-func linkedKeg(data []byte) string {
-	var info brewInfoJSON
-	if err := json.Unmarshal(data, &info); err != nil || len(info.Formulae) == 0 {
+// brewBinDir returns Homebrew's bin directory (<prefix>/bin), or "" when the
+// prefix cannot be determined.
+func (r *runner) brewBinDir(ctx context.Context) string {
+	out, err := r.brewCmd(ctx, "--prefix").Output()
+	if err != nil {
 		return ""
 	}
-	return info.Formulae[0].LinkedKeg
+	return strings.TrimSpace(string(out)) + "/bin"
 }
 
 // cleanup handles copies of the binary found on PATH outside Homebrew, so the
@@ -285,11 +294,10 @@ func (r *runner) cleanup(ctx context.Context) {
 	if r.cfg.OnConflict == ConflictIgnore {
 		return
 	}
-	out, err := r.brewCmd(ctx, "--prefix").Output()
-	if err != nil {
+	brewBin := r.brewBinDir(ctx)
+	if brewBin == "" {
 		return
 	}
-	brewBin := strings.TrimSpace(string(out)) + "/bin"
 
 	// A copy shadows the brew install only when its PATH directory comes before
 	// Homebrew's bin: that is the one a name lookup resolves to. Tracking whether
@@ -415,6 +423,10 @@ func (r *runner) brewCmd(ctx context.Context, args ...string) *exec.Cmd {
 // by other update mechanisms (the periodic check) that name the `<binary>
 // update` command.
 func (c Config) BinaryName() string { return cmp.Or(c.Binary, c.Formula) }
+
+// versionArg is the argument used to ask the installed binary for its version,
+// defaulting to the "version" subcommand when unset.
+func (c Config) versionArg() string { return cmp.Or(c.VersionArg, "version") }
 
 // DisplayName is the human-facing name used in messages, defaulting to the
 // binary (and thus the formula) name when Name is unset.

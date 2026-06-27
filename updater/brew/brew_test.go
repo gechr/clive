@@ -16,27 +16,6 @@ func TestChannelFor(t *testing.T) {
 	require.Equal(t, brew.Dev, brew.ChannelFor(true, true), "dev takes precedence")
 }
 
-func TestLinkedKeg(t *testing.T) {
-	t.Parallel()
-
-	const multi = `{"formulae":[{"linked_keg":"0.32.0",` +
-		`"installed":[{"version":"0.31.7"},{"version":"0.32.0"}]}]}`
-	require.Equal(
-		t,
-		"0.32.0",
-		brew.LinkedKeg([]byte(multi)),
-		"the linked keg wins over the arbitrary order of installed kegs",
-	)
-
-	require.Empty(
-		t,
-		brew.LinkedKeg([]byte(`{"formulae":[{"linked_keg":""}]}`)),
-		"an unlinked formula reports no version",
-	)
-	require.Empty(t, brew.LinkedKeg([]byte(`{"formulae":[]}`)))
-	require.Empty(t, brew.LinkedKeg([]byte("not json")))
-}
-
 func TestConflictPolicyZeroValueWarns(t *testing.T) {
 	t.Parallel()
 
@@ -50,6 +29,23 @@ func TestBinaryDefaultsToFormula(t *testing.T) {
 
 	require.Equal(t, "clover", brew.Config{Formula: "clover"}.BinaryName())
 	require.Equal(t, "clv", brew.Config{Formula: "clover", Binary: "clv"}.BinaryName())
+}
+
+func TestVersionArgDefaultsToVersion(t *testing.T) {
+	t.Parallel()
+
+	require.Equal(
+		t,
+		"version",
+		brew.Config{}.ResolveVersionArg(),
+		"defaults to the version subcommand",
+	)
+	require.Equal(
+		t,
+		"--version",
+		brew.Config{VersionArg: "--version"}.ResolveVersionArg(),
+		"a configured flag is used verbatim",
+	)
 }
 
 func TestFormulaRef(t *testing.T) {
