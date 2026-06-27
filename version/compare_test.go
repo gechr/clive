@@ -72,3 +72,31 @@ func TestGreaterThanLessThanEqual(t *testing.T) {
 	assert.True(t, version.Equal(a, mustParse(t, "1.2.3")))
 	assert.False(t, version.Equal(a, b))
 }
+
+func TestEqualString(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		a, b string
+		want bool
+	}{
+		{name: "identical", a: "1.2.0", b: "1.2.0", want: true},
+		{name: "prefix on one side", a: "v1.2.0", b: "1.2.0", want: true},
+		{name: "prefix on both sides", a: "v1.2.0", b: "v1.2.0", want: true},
+		{name: "missing trailing segment", a: "v1.2", b: "1.2.0", want: true},
+		{name: "different patch", a: "1.2.0", b: "1.2.1", want: false},
+		{name: "prerelease differs", a: "1.2.0-rc1", b: "1.2.0-rc2", want: false},
+		{name: "non-semver equal fallback", a: "stable", b: "stable", want: true},
+		{name: "non-semver differs fallback", a: "stable", b: "edge", want: false},
+		{name: "non-semver prefix fallback", a: "vstable", b: "stable", want: true},
+		{name: "both empty", a: "", b: "", want: true},
+		{name: "empty vs set", a: "", b: "1.2.0", want: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			assert.Equal(t, tt.want, version.EqualString(tt.a, tt.b))
+		})
+	}
+}

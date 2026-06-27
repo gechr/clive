@@ -74,6 +74,19 @@ func comparePrerelease(a, b string) int {
 // Equal reports whether a and b are the same version.
 func Equal(a, b *goversion.Version) bool { return Compare(a, b) == cmpEq }
 
+// EqualString reports whether two version strings denote the same version,
+// tolerating a "v" prefix and missing trailing segments (v1.2 == 1.2.0). A
+// string that does not parse falls back to prefix-stripped exact match, so a
+// non-semver ref still compares.
+func EqualString(a, b string) bool {
+	pa, errA := Parse(a)
+	pb, errB := Parse(b)
+	if errA != nil || errB != nil {
+		return RemovePrefix(a) == RemovePrefix(b)
+	}
+	return Equal(pa, pb)
+}
+
 // GreaterThan reports whether a > b.
 func GreaterThan(a, b *goversion.Version) bool { return Compare(a, b) == cmpGt }
 
