@@ -3,6 +3,7 @@ package updater
 import (
 	"cmp"
 
+	"charm.land/lipgloss/v2"
 	"github.com/gechr/clive"
 	"github.com/gechr/clive/version"
 	"github.com/gechr/clog"
@@ -15,10 +16,16 @@ func Report(name string, info clive.Info, old, current string) {
 	old = version.RemovePrefix(old)
 	current = version.RemovePrefix(current)
 	if old != "" && current != "" && old != current {
+		from := info.VersionLink(old)
+		to := info.VersionLink(current)
+		if !clog.ColorsDisabled() {
+			from = lipgloss.NewStyle().Foreground(lipgloss.Color("1")).Render(from) // red
+			to = lipgloss.NewStyle().Foreground(lipgloss.Color("2")).Render(to)     // green
+		}
 		clog.Info().
 			Symbol("🎉").
-			Str("old", info.VersionLink(old)).
-			Str("new", info.VersionLink(current)).
+			Str("from", from).
+			Str("to", to).
 			Msgf("Updated %s", name)
 		return
 	}
