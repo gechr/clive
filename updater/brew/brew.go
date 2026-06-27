@@ -1,7 +1,7 @@
 // Package brew self-updates a Go CLI binary through Homebrew. A tool describes
 // itself with a [Config] and calls [Update]; it refreshes the formula, then
 // upgrades (or taps and installs), with a stable and a dev (--HEAD) channel, and
-// removes stray non-Homebrew copies so the brew install is authoritative.
+// trashes stray non-Homebrew copies so the brew install is authoritative.
 // [Check] reports whether a newer release exists without installing anything.
 //
 // It is one update mechanism under clive/updater; others (goinstall, github) sit
@@ -28,6 +28,7 @@ import (
 	"github.com/gechr/clive"
 	"github.com/gechr/clive/updater"
 	"github.com/gechr/clog"
+	xos "github.com/gechr/x/os"
 )
 
 // brewTimeout bounds a full update; compiling --HEAD from source can be slow.
@@ -57,7 +58,9 @@ const (
 	// ConflictWarn leaves stray non-Homebrew copies in place but warns about each
 	// one. It is the zero value, and thus the default.
 	ConflictWarn ConflictPolicy = iota
-	// ConflictUninstall removes stray copies so the brew install is authoritative.
+	// ConflictUninstall trashes stray copies (recoverable, falling back to a
+	// permanent remove where the platform cannot trash) so the brew install is
+	// authoritative.
 	ConflictUninstall
 	// ConflictIgnore leaves stray copies in place silently.
 	ConflictIgnore
@@ -318,7 +321,7 @@ func (r *runner) cleanup(ctx context.Context) {
 // resolveConflict applies cfg.OnConflict to a single non-Homebrew copy at path.
 // shadows reports whether the copy precedes Homebrew on PATH, and so is the one a
 // name lookup actually resolves to. A warn stays silent about a copy that does
-// not shadow, since it is harmless; an uninstall removes every stray copy.
+// not shadow, since it is harmless; an uninstall trashes every stray copy.
 func (r *runner) resolveConflict(path string, shadows bool) {
 	if r.cfg.OnConflict == ConflictWarn {
 		if shadows {
@@ -328,6 +331,27 @@ func (r *runner) resolveConflict(path string, shadows bool) {
 		}
 		return
 	}
+	// Trash the stray copy so it can be recovered, falling back to a permanent
+	// remove on a platform that cannot trash (e.g. macOS older than 15).
+	switch err := xos.Trash(path); {
+	case err == nil:
+		clog.Info().
+			Symbol("🗑️").
+			Path("path", path).
+			Msgf("Trashed stray %s installation", r.cfg.DisplayName())
+	case errors.Is(err, errors.ErrUnsupported):
+		r.removeConflict(path)
+	default:
+		clog.Warn().
+			Path("path", path).
+			Err(err).
+			Msgf("Failed to trash stray %s installation", r.cfg.DisplayName())
+	}
+}
+
+// removeConflict permanently removes a stray copy: the fallback for a platform
+// that cannot move it to the trash.
+func (r *runner) removeConflict(path string) {
 	if err := os.Remove(path); err != nil {
 		clog.Warn().
 			Path("path", path).
