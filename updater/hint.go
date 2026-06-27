@@ -4,42 +4,86 @@ import (
 	"image/color"
 
 	"charm.land/lipgloss/v2"
+	"github.com/gechr/clive/version"
 	"github.com/gechr/clog"
 )
 
-// DefaultHintColor is the orange accent for the update hint.
+// DefaultHintColor is the orange accent for the update hint message.
 var DefaultHintColor color.Color = lipgloss.Color("208")
 
-// Hint logs the shared "you're behind" update hint: the 💡 symbol, the installed
-// and latest refs as fields, and a "<name> is outdated! Run `<binary> update` to
-// upgrade" message with the command emphasised in accent. It is the single
-// renderer used by every mechanism's Check and by notify, so the active and
-// passive update paths read identically. installed and latest are already
-// display-formatted.
-func Hint(displayName, binaryName, installed, latest string, accent color.Color) {
+// OutdatedHint renders the shared "you're behind" update hint. Build one with
+// [NewOutdatedHint] and options, then call [OutdatedHint.Log].
+type OutdatedHint struct {
+	symbol         string
+	accent         color.Color
+	installedColor color.Color
+	latestColor    color.Color
+}
+
+// HintOption configures an [OutdatedHint].
+type HintOption func(*OutdatedHint)
+
+// WithOutdatedHintSymbol overrides the hint's leading glyph (default 💡).
+func WithOutdatedHintSymbol(symbol string) HintOption {
+	return func(h *OutdatedHint) { h.symbol = symbol }
+}
+
+// WithOutdatedHintColor overrides the message accent colour (default orange). A
+// nil colour is ignored.
+func WithOutdatedHintColor(c color.Color) HintOption {
+	return func(h *OutdatedHint) {
+		if c != nil {
+			h.accent = c
+		}
+	}
+}
+
+// NewOutdatedHint builds a hint with defaults - 💡, an orange message, a red
+// installed version and a green latest version - then applies opts.
+func NewOutdatedHint(opts ...HintOption) OutdatedHint {
+	h := OutdatedHint{
+		symbol:         "💡",
+		accent:         DefaultHintColor,
+		installedColor: lipgloss.Color("1"), // red
+		latestColor:    lipgloss.Color("2"), // green
+	}
+	for _, o := range opts {
+		o(&h)
+	}
+	return h
+}
+
+// Log renders the hint: the symbol, the installed (red) and latest (green)
+// versions as fields, and a coloured "<name> is outdated - run `<binary> update`
+// to upgrade!" message with the command emphasised. The colours are applied to
+// the values here rather than via global clog styles, so a host's own field
+// formatting is never affected. installed and latest are already display-formatted.
+func (h OutdatedHint) Log(displayName, binaryName, installed, latest string) {
 	command := binaryName + " update"
-	msg := displayName + " is outdated! Run '" + command + "' to upgrade"
+	msg := displayName + " is outdated - run '" + command + "' to upgrade!"
 	if !clog.ColorsDisabled() {
-		style := lipgloss.NewStyle().Foreground(accent)
-		msg = style.Render(displayName+" is outdated! Run '") +
+		style := lipgloss.NewStyle().Foreground(h.accent)
+		msg = style.Render(displayName+" is outdated - run '") +
 			style.Bold(true).Render(command) +
-			style.Render("' to upgrade")
+			style.Render("' to upgrade!")
+		installed = lipgloss.NewStyle().Foreground(h.installedColor).Render(installed)
+		latest = lipgloss.NewStyle().Foreground(h.latestColor).Render(latest)
 	}
 	clog.Warn().
-		Symbol("💡").
+		Symbol(h.symbol).
 		Str("installed", installed).
 		Str("latest", latest).
 		Msg(msg)
 }
 
-// HintFor logs the default-styled update hint for a tool, formatting current and
-// latest through the tool's VersionLink. It is the convenience each Check uses.
-func HintFor(tool Tool, current, latest string) {
-	Hint(
+// HintFor logs the update hint for a tool, stripping a leading "v" and formatting
+// each version through the tool's VersionLink. Options customize the presentation
+// (e.g. [WithOutdatedHintSymbol]).
+func HintFor(tool Tool, current, latest string, opts ...HintOption) {
+	NewOutdatedHint(opts...).Log(
 		tool.DisplayName(),
 		tool.BinaryName(),
-		tool.VersionLink(current),
-		tool.VersionLink(latest),
-		DefaultHintColor,
+		tool.VersionLink(version.RemovePrefix(current)),
+		tool.VersionLink(version.RemovePrefix(latest)),
 	)
 }

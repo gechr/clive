@@ -221,6 +221,7 @@ type checker struct {
 	latest          LatestFunc
 	comparator      func(current, latest string) bool
 	display         func(string) string
+	hintOpts        []updater.HintOption
 	refreshInterval time.Duration
 	notifyInterval  time.Duration
 }
@@ -552,13 +553,16 @@ func (c *checker) envVar() string {
 func (c *checker) printHint(res Result) {
 	installed, latest := c.hintRefs(res)
 	fmt.Fprintln(os.Stderr)
-	updater.Hint(c.tool.DisplayName(), c.tool.BinaryName(), installed, latest, c.color)
+	opts := append([]updater.HintOption{updater.WithOutdatedHintColor(c.color)}, c.hintOpts...)
+	updater.NewOutdatedHint(opts...).
+		Log(c.tool.DisplayName(), c.tool.BinaryName(), installed, latest)
 }
 
-// hintRefs returns the rendered installed/latest fields used by printHint.
+// hintRefs returns the rendered installed/latest fields used by printHint, with a
+// leading "v" stripped so they read like a from→to version change.
 func (c *checker) hintRefs(res Result) (string, string) {
-	return c.tool.VersionLink(res.CurrentDisplay),
-		c.tool.VersionLink(res.LatestDisplay)
+	return c.tool.VersionLink(version.RemovePrefix(res.CurrentDisplay)),
+		c.tool.VersionLink(version.RemovePrefix(res.LatestDisplay))
 }
 
 // defaultCacheDir namespaces the cache file under the user cache directory

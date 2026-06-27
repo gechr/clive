@@ -1,4 +1,4 @@
-GO       ?= go
+	GO       ?= go
 GO_TOOLS ?= $(shell $(GO) tool | grep /)
 
 .PHONY: all
@@ -13,6 +13,9 @@ fmt:
 
 .PHONY: lint
 lint:
+ifndef CI
+	@zizmor --persona=pedantic --min-severity=medium .github/
+endif
 	@$(GO) tool github.com/golangci/golangci-lint/v2/cmd/golangci-lint run
 
 .PHONY: test

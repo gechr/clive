@@ -5,6 +5,8 @@ import (
 	"image/color"
 	"net/http"
 	"time"
+
+	"github.com/gechr/clive/updater"
 )
 
 // Option configures a [Check]. The defaults target a real run; the seams exist
@@ -32,6 +34,13 @@ func WithChannel(name string) Option {
 // the orange lipgloss.Color(updateColor).
 func WithColor(c color.Color) Option {
 	return func(ck *checker) { ck.color = c }
+}
+
+// WithOutdatedHintSymbol overrides the glyph on the update hint (default 💡).
+func WithOutdatedHintSymbol(symbol string) Option {
+	return func(c *checker) {
+		c.hintOpts = append(c.hintOpts, updater.WithOutdatedHintSymbol(symbol))
+	}
 }
 
 // WithComparator overrides the decision that latest is an update over current.
