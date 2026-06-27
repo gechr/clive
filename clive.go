@@ -171,30 +171,41 @@ func (i Info) PrintDetailed() {
 	}
 }
 
-// VersionLink returns v rendered as a clickable terminal hyperlink to the
-// matching GitHub tag (release versions) or commit (dev versions).
-// If i has no usable Repo, v is returned unchanged.
-func (i Info) VersionLink(v string) string {
+// VersionURL returns the GitHub URL for v: the release-tag page for a release
+// version, or the commit page for a dev version. It returns "" when i has no
+// usable Repo or v has no derivable URL, so a caller can fall back to plain text.
+func (i Info) VersionURL(v string) string {
 	if v == "" {
-		return v
+		return ""
 	}
 	repo := i.repo()
 	if repo == "" {
-		return v
+		return ""
 	}
 
 	if hash := extractCommitHash(v); hash != "" {
 		linkURL, _ := url.JoinPath("https://github.com", repo, "commit", hash)
-		return hyperlink(linkURL, v)
+		return linkURL
 	}
 
 	if _, err := goversion.NewVersion(v); err == nil {
 		linkURL, _ := url.JoinPath(
 			"https://github.com", repo, "releases", "tag", ver.AddPrefix(v),
 		)
-		return hyperlink(linkURL, v)
+		return linkURL
 	}
-	return v
+	return ""
+}
+
+// VersionLink returns v rendered as a clickable terminal hyperlink to the
+// matching GitHub tag (release versions) or commit (dev versions).
+// If i has no usable Repo, v is returned unchanged.
+func (i Info) VersionLink(v string) string {
+	link := i.VersionURL(v)
+	if link == "" {
+		return v
+	}
+	return hyperlink(link, v)
 }
 
 // hyperlink renders an OSC 8 terminal hyperlink when stdout is a terminal,

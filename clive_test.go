@@ -18,6 +18,30 @@ func TestUpdateAvailableNoModule(t *testing.T) {
 	require.Error(t, err)
 }
 
+func TestVersionURL(t *testing.T) {
+	t.Parallel()
+
+	i := clive.Info{Module: "github.com/gechr/clive"}
+	tests := map[string]string{
+		"v1.2.3":                 "https://github.com/gechr/clive/releases/tag/v1.2.3",
+		"1.2.3":                  "https://github.com/gechr/clive/releases/tag/v1.2.3",
+		"v0.21.4-1-g4bed8a3-dev": "https://github.com/gechr/clive/commit/4bed8a3",
+		"v0.21.4-4bed8a3-dev":    "https://github.com/gechr/clive/commit/4bed8a3",
+	}
+	for v, want := range tests {
+		assert.Equalf(t, want, i.VersionURL(v), "VersionURL(%q)", v)
+	}
+}
+
+func TestVersionURLNoRepo(t *testing.T) {
+	t.Parallel()
+
+	// No Module/Repo, an empty version, and a non-github module all yield no URL.
+	assert.Empty(t, clive.Info{}.VersionURL("v1.2.3"))
+	assert.Empty(t, clive.Info{Module: "github.com/gechr/clive"}.VersionURL(""))
+	assert.Empty(t, clive.Info{Module: "go.example.com/foo"}.VersionURL("v1.2.3"))
+}
+
 func TestVersionLinkNoRepo(t *testing.T) {
 	t.Parallel()
 

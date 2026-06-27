@@ -288,8 +288,16 @@ func (r *runner) cleanup(ctx context.Context) {
 	}
 	brewBin := strings.TrimSpace(string(out)) + "/bin"
 
+	// A copy shadows the brew install only when its PATH directory comes before
+	// Homebrew's bin: that is the one a name lookup resolves to. Tracking whether
+	// brewBin has been seen yet, in PATH order, tells us which side a copy is on.
+	seenBrewBin := false
 	for dir := range strings.SplitSeq(os.Getenv("PATH"), string(os.PathListSeparator)) {
-		if dir == "" || dir == brewBin {
+		if dir == "" {
+			continue
+		}
+		if dir == brewBin {
+			seenBrewBin = true
 			continue
 		}
 		path := dir + string(os.PathSeparator) + r.cfg.BinaryName()
@@ -303,29 +311,33 @@ func (r *runner) cleanup(ctx context.Context) {
 		if !executable && !symlink {
 			continue
 		}
-		r.resolveConflict(path)
+		r.resolveConflict(path, !seenBrewBin)
 	}
 }
 
-// resolveConflict applies cfg.OnConflict to a single non-Homebrew copy at path,
-// either warning that it shadows the brew install or removing it.
-func (r *runner) resolveConflict(path string) {
+// resolveConflict applies cfg.OnConflict to a single non-Homebrew copy at path.
+// shadows reports whether the copy precedes Homebrew on PATH, and so is the one a
+// name lookup actually resolves to. A warn stays silent about a copy that does
+// not shadow, since it is harmless; an uninstall removes every stray copy.
+func (r *runner) resolveConflict(path string, shadows bool) {
 	if r.cfg.OnConflict == ConflictWarn {
-		clog.Warn().
-			Str("path", path).
-			Msgf("A non-Homebrew %s install may shadow the Homebrew install", r.cfg.DisplayName())
+		if shadows {
+			clog.Warn().
+				Path("path", path).
+				Msgf("%s is shadowed by another copy earlier in your `$PATH`", r.cfg.DisplayName())
+		}
 		return
 	}
 	if err := os.Remove(path); err != nil {
 		clog.Warn().
-			Str("path", path).
+			Path("path", path).
 			Err(err).
-			Msgf("Failed to remove a stray %s installation", r.cfg.DisplayName())
+			Msgf("Failed to remove stray %s installation", r.cfg.DisplayName())
 	} else {
 		clog.Info().
 			Symbol("🗑️").
-			Str("path", path).
-			Msgf("Removed a stray %s installation", r.cfg.DisplayName())
+			Path("path", path).
+			Msgf("Removed stray %s installation", r.cfg.DisplayName())
 	}
 }
 
