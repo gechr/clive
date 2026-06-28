@@ -1,8 +1,8 @@
 package version
 
 import (
+	xstrings "github.com/gechr/x/strings"
 	goversion "github.com/hashicorp/go-version"
-	"github.com/maruel/natural"
 )
 
 const (
@@ -62,12 +62,8 @@ func comparePrerelease(a, b string) int {
 		return cmpGt
 	case b == "":
 		return cmpLt
-	case natural.Less(a, b):
-		return cmpLt
-	case natural.Less(b, a):
-		return cmpGt
 	default:
-		return cmpEq
+		return xstrings.CompareNatural(a, b)
 	}
 }
 
