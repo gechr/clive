@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/gechr/clog"
+	"github.com/gechr/clog/fx"
 )
 
 const (
@@ -32,6 +33,21 @@ type Field struct {
 // without the spinner logging its own error line, so the caller reports the
 // failure exactly once.
 func Spin(ctx context.Context, msg string, fn func(context.Context) error, fields ...Field) error {
+	res := SpinResult(ctx, msg, fn, fields...)
+	if err := res.Silent(); err != nil {
+		return err
+	}
+	return res.Symbol(doneSymbol).Msg(msg)
+}
+
+// SpinResult runs fn under a clog spinner labelled msg and returns the
+// unfinalized result so callers can choose the completion line.
+func SpinResult(
+	ctx context.Context,
+	msg string,
+	fn func(context.Context) error,
+	fields ...Field,
+) *fx.WaitResult {
 	elapsedOnce.Do(func() {
 		f := clog.Default.FieldFormats()
 		f.ElapsedMinimum = elapsedMinimum
@@ -42,9 +58,26 @@ func Spin(ctx context.Context, msg string, fn func(context.Context) error, field
 	for _, f := range fields {
 		b = b.Str(f.Key, f.Val)
 	}
-	res := b.Elapsed("elapsed").Wait(ctx, fn)
-	if err := res.Silent(); err != nil {
-		return err
+	return b.Elapsed("elapsed").Wait(ctx, fn)
+}
+
+// TransientSpinResult is like [SpinResult], but suppresses the non-TTY progress
+// line so only the caller's final completion message is written to scrollback.
+func TransientSpinResult(
+	ctx context.Context,
+	msg string,
+	fn func(context.Context) error,
+	fields ...Field,
+) *fx.WaitResult {
+	elapsedOnce.Do(func() {
+		f := clog.Default.FieldFormats()
+		f.ElapsedMinimum = elapsedMinimum
+		clog.Default.SetFieldFormats(f)
+	})
+
+	b := clog.Spinner(msg).NonTTYSilent(true)
+	for _, f := range fields {
+		b = b.Str(f.Key, f.Val)
 	}
-	return res.Symbol(doneSymbol).Msg(msg)
+	return b.Elapsed("elapsed").Wait(ctx, fn)
 }

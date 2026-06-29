@@ -182,11 +182,21 @@ func (r *runner) upgrade(ctx context.Context) error {
 		args = append(args, "--fetch-HEAD")
 	}
 	args = append(args, r.cfg.Formula)
-	if err := r.spin(ctx, fmt.Sprintf("Upgrading %s", r.cfg.DisplayName()), args...); err != nil {
+	res := updater.TransientSpinResult(ctx, fmt.Sprintf("Upgrading %s", r.cfg.DisplayName()),
+		func(ctx context.Context) error {
+			return r.run(ctx, args...)
+		})
+	if err := res.Silent(); err != nil {
 		return err
 	}
 	r.cleanup(ctx)
-	return r.report(ctx)
+	return updater.CompleteReport(
+		res,
+		r.cfg.DisplayName(),
+		r.cfg.Info,
+		r.current,
+		r.installedVersion(ctx),
+	)
 }
 
 // reinstall uninstalls any existing copy then installs the chosen channel,
