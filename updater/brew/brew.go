@@ -33,6 +33,12 @@ import (
 // brewTimeout bounds a full update; compiling --HEAD from source can be slow.
 const brewTimeout = 5 * time.Minute
 
+// defaultFetchTimeout bounds the initial `brew update` formula refresh, which is
+// normally quick. A much longer hang means a stuck network fetch, so we cut it
+// off well before the overall brewTimeout rather than blocking the whole update.
+// A consumer can override it per-update via [Config.FetchTimeout].
+const defaultFetchTimeout = 2 * time.Minute
+
 // headBuild matches a dev/HEAD version like "0.1.0-gabc1234-dev", so an upgrade
 // of a source build re-fetches HEAD rather than dropping to a stable release.
 var headBuild = regexp.MustCompile(`-g?[0-9a-f]{7,}-dev$`)
@@ -110,6 +116,10 @@ type Config struct {
 	// NoProxy clears the proxy variables for the brew subprocesses, so an update
 	// bypasses a proxy that cannot reach Homebrew or the formula's source.
 	NoProxy bool
+	// FetchTimeout bounds the initial `brew update` formula refresh; the zero
+	// value uses defaultFetchTimeout (two minutes). A tool on a slow link can
+	// raise it, or lower it to fail faster.
+	FetchTimeout time.Duration
 	// RemoveTaps lists Homebrew taps to untap before installing, so a formula
 	// that has moved to a new tap is not resolved from a stale one. Best-effort.
 	RemoveTaps []string
@@ -145,12 +155,7 @@ func Update(ctx context.Context, cfg Config, channel Channel) error {
 	}
 	r := &runner{cfg: cfg, brew: brew, current: clive.Current()}
 
-	if err := r.spin(
-		ctx,
-		fmt.Sprintf("Fetching latest %s Homebrew formula", cfg.DisplayName()),
-		"update",
-		"--quiet",
-	); err != nil {
+	if err := r.fetch(ctx); err != nil {
 		return err
 	}
 	switch channel {
@@ -162,6 +167,22 @@ func Update(ctx context.Context, cfg Config, channel Channel) error {
 		return r.upgrade(ctx)
 	}
 	return r.upgrade(ctx)
+}
+
+// fetch refreshes the formula metadata via `brew update`. The refresh is
+// normally quick, so it runs under fetchTimeout - far tighter than the overall
+// brewTimeout that must also cover a --HEAD source compile - and on timeout
+// supplants its spinner with a clear "Timed out ..." line rather than hanging
+// or surfacing brew's opaque "signal: killed".
+func (r *runner) fetch(ctx context.Context) error {
+	name := r.cfg.DisplayName()
+	return updater.SpinTimeout(
+		ctx,
+		fmt.Sprintf("Fetching latest %s Homebrew formula", name),
+		fmt.Sprintf("Timed out while fetching %s Homebrew formula", name),
+		cmp.Or(r.cfg.FetchTimeout, defaultFetchTimeout),
+		func(ctx context.Context) error { return r.run(ctx, "update", "--quiet") },
+	)
 }
 
 // runner holds the brew invocation state for one update.
