@@ -12,7 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestCompleteReportEmitsUpdatedOutcome(t *testing.T) {
+func TestCompleteReportEmitsUpgradedOutcome(t *testing.T) {
 	t.Parallel()
 
 	var buf bytes.Buffer
@@ -20,12 +20,18 @@ func TestCompleteReportEmitsUpdatedOutcome(t *testing.T) {
 
 	require.NoError(t, updater.CompleteReport(res, "App", clive.Info{}, "1.0.7", "1.0.8"))
 
-	out := buf.String()
-	require.Contains(t, out, "Updated App")
-	require.Contains(t, out, "from=1.0.7")
-	require.Contains(t, out, "to=1.0.8")
-	require.NotContains(t, out, "Upgrading App")
-	require.NotContains(t, out, "elapsed=")
+	require.Equal(t, "INF ⬆️ Upgraded App from=1.0.7 to=1.0.8\n", buf.String())
+}
+
+func TestCompleteReportEmitsDowngradedOutcome(t *testing.T) {
+	t.Parallel()
+
+	var buf bytes.Buffer
+	res := completedUpgradeResult(t, &buf)
+
+	require.NoError(t, updater.CompleteReport(res, "App", clive.Info{}, "1.0.8", "1.0.7"))
+
+	require.Equal(t, "INF ⬇️ Downgraded App from=1.0.8 to=1.0.7\n", buf.String())
 }
 
 func TestCompleteReportEmitsUpToDateOutcome(t *testing.T) {
@@ -36,11 +42,18 @@ func TestCompleteReportEmitsUpToDateOutcome(t *testing.T) {
 
 	require.NoError(t, updater.CompleteReport(res, "App", clive.Info{}, "1.0.8", "1.0.8"))
 
-	out := buf.String()
-	require.Contains(t, out, "App is already up-to-date")
-	require.Contains(t, out, "version=1.0.8")
-	require.NotContains(t, out, "Upgrading App")
-	require.NotContains(t, out, "elapsed=")
+	require.Equal(t, "WRN ⚠️ App is already up-to-date version=1.0.8\n", buf.String())
+}
+
+func TestCompleteReportTreatsSemanticEqualAsUpToDate(t *testing.T) {
+	t.Parallel()
+
+	var buf bytes.Buffer
+	res := completedUpgradeResult(t, &buf)
+
+	require.NoError(t, updater.CompleteReport(res, "App", clive.Info{}, "1.2", "1.2.0"))
+
+	require.Equal(t, "WRN ⚠️ App is already up-to-date version=1.2.0\n", buf.String())
 }
 
 func completedUpgradeResult(t *testing.T, buf *bytes.Buffer) *fx.WaitResult {

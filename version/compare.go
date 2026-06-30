@@ -83,6 +83,18 @@ func EqualString(a, b string) bool {
 	return Equal(pa, pb)
 }
 
+// CompareString orders two version strings, tolerating a "v" prefix and missing
+// trailing segments (v1.2 == 1.2.0). Strings that do not parse fall back to a
+// natural-sort comparison of their prefix-stripped forms.
+func CompareString(a, b string) int {
+	pa, errA := Parse(a)
+	pb, errB := Parse(b)
+	if errA != nil || errB != nil {
+		return xstrings.CompareNatural(RemovePrefix(a), RemovePrefix(b))
+	}
+	return Compare(pa, pb)
+}
+
 // GreaterThan reports whether a > b.
 func GreaterThan(a, b *goversion.Version) bool { return Compare(a, b) == cmpGt }
 
