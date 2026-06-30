@@ -345,7 +345,7 @@ func (r *runner) resolveConflict(path string, shadows bool) {
 		if shadows {
 			clog.Warn().
 				Path("path", path).
-				Msgf("%s is shadowed by another copy earlier in your `$PATH`", r.cfg.DisplayName())
+				Msgf("Another copy of %s in your `$PATH` is shadowing the Homebrew install", r.cfg.DisplayName())
 		}
 		return
 	}
