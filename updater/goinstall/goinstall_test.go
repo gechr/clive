@@ -18,27 +18,33 @@ func TestChannelFor(t *testing.T) {
 func TestBinaryDefaultsToModuleBase(t *testing.T) {
 	t.Parallel()
 
-	cfg := goinstall.Config{Info: clive.Info{Module: "github.com/owner/example"}}
+	cfg := goinstall.New(clive.Info{Module: "github.com/owner/example"})
 	require.Equal(t, "example", cfg.BinaryName(), "defaults to the last module element")
 
-	cfg.Binary = "clv"
+	cfg = goinstall.New(
+		clive.Info{Module: "github.com/owner/example"},
+		goinstall.WithBinary("clv"),
+	)
 	require.Equal(t, "clv", cfg.BinaryName(), "an explicit binary wins")
 }
 
 func TestDisplayNameDefaultsToBinary(t *testing.T) {
 	t.Parallel()
 
-	cfg := goinstall.Config{Info: clive.Info{Module: "github.com/owner/example"}}
+	cfg := goinstall.New(clive.Info{Module: "github.com/owner/example"})
 	require.Equal(t, "example", cfg.DisplayName(), "defaults to the binary name")
 
-	cfg.Name = "Example"
+	cfg = goinstall.New(
+		clive.Info{Module: "github.com/owner/example"},
+		goinstall.WithName("Example"),
+	)
 	require.Equal(t, "Example", cfg.DisplayName(), "an explicit name wins")
 }
 
 func TestInstallTarget(t *testing.T) {
 	t.Parallel()
 
-	cfg := goinstall.Config{Info: clive.Info{Module: "github.com/owner/example"}}
+	cfg := goinstall.New(clive.Info{Module: "github.com/owner/example"})
 	require.Equal(
 		t,
 		"github.com/owner/example@latest",
@@ -52,7 +58,10 @@ func TestInstallTarget(t *testing.T) {
 		"the dev channel defaults to @main",
 	)
 
-	cfg.Branch = "develop"
+	cfg = goinstall.New(
+		clive.Info{Module: "github.com/owner/example"},
+		goinstall.WithBranch("develop"),
+	)
 	require.Equal(
 		t,
 		"github.com/owner/example@develop",

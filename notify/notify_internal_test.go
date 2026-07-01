@@ -45,9 +45,7 @@ func errTransport() http.RoundTripper {
 }
 
 func cfg() brew.Config {
-	return brew.Config{
-		Info: clive.Info{Module: "github.com/example/myapp"}, Formula: "myapp",
-	}
+	return brew.New(clive.Info{Module: "github.com/example/myapp"})
 }
 
 func differentRef(current, latest string) bool {
@@ -90,7 +88,7 @@ func TestEnvVar(t *testing.T) {
 	require.Equal(
 		t,
 		"MYAPP_NO_UPDATE_CHECK",
-		(&checker{tool: brew.Config{Formula: "myapp"}}).envVar(),
+		(&checker{tool: brew.New(clive.Info{}, brew.WithFormula("myapp"))}).envVar(),
 	)
 }
 
@@ -569,10 +567,10 @@ func TestRefDisplayAppliesToPendingAndHintFields(t *testing.T) {
 		WithComparator(differentRef),
 		WithRefDisplay(display),
 	}
-	c := newChecker(brew.Config{Formula: "myapp"}, opts...)
+	c := newChecker(brew.New(clive.Info{}, brew.WithFormula("myapp")), opts...)
 	c.writeStamp("222222222222")
 
-	res, pending := Pending(brew.Config{Formula: "myapp"}, opts...)
+	res, pending := Pending(brew.New(clive.Info{}, brew.WithFormula("myapp")), opts...)
 	require.True(t, pending)
 	require.Equal(t, "1111111", res.CurrentDisplay)
 	require.Equal(t, "2222222", res.LatestDisplay)

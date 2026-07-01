@@ -6,4 +6,4 @@ var HeadBuild = headBuild
 
 func (c Config) FormulaRef() string { return c.formulaRef() }
 
-func (c Config) ResolveVersionArg() string { return c.versionArg() }
+func (c Config) ResolveVersionArgument() string { return c.resolveVersionArgument() }

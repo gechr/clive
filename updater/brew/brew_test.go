@@ -3,6 +3,7 @@ package brew_test
 import (
 	"testing"
 
+	"github.com/gechr/clive"
 	"github.com/gechr/clive/updater/brew"
 	"github.com/stretchr/testify/require"
 )
@@ -19,31 +20,41 @@ func TestChannelFor(t *testing.T) {
 func TestConflictPolicyZeroValueWarns(t *testing.T) {
 	t.Parallel()
 
-	// The zero value must default to warning, so a Config that does not set
-	// OnConflict leaves stray installs in place but flags them.
-	require.Equal(t, brew.ConflictWarn, brew.Config{}.OnConflict)
+	// The zero value must default to warning, so a Config that does not set an
+	// on-conflict policy leaves stray installs in place but flags them.
+	require.Equal(t, brew.ConflictWarn, brew.ConflictPolicy(0))
 }
 
 func TestBinaryDefaultsToFormula(t *testing.T) {
 	t.Parallel()
 
-	require.Equal(t, "clover", brew.Config{Formula: "clover"}.BinaryName())
-	require.Equal(t, "clv", brew.Config{Formula: "clover", Binary: "clv"}.BinaryName())
+	require.Equal(t, "clover", brew.New(clive.Info{}, brew.WithFormula("clover")).BinaryName())
+	require.Equal(
+		t,
+		"clover",
+		brew.New(clive.Info{Module: "github.com/gechr/clover"}).BinaryName(),
+		"the formula (and thus binary) infers from the module path",
+	)
+	require.Equal(
+		t,
+		"clv",
+		brew.New(clive.Info{}, brew.WithFormula("clover"), brew.WithBinary("clv")).BinaryName(),
+	)
 }
 
-func TestVersionArgDefaultsToVersion(t *testing.T) {
+func TestVersionArgumentDefaultsToVersion(t *testing.T) {
 	t.Parallel()
 
 	require.Equal(
 		t,
 		"version",
-		brew.Config{}.ResolveVersionArg(),
+		brew.New(clive.Info{}).ResolveVersionArgument(),
 		"defaults to the version subcommand",
 	)
 	require.Equal(
 		t,
 		"--version",
-		brew.Config{VersionArg: "--version"}.ResolveVersionArg(),
+		brew.New(clive.Info{}, brew.WithVersionArgument("--version")).ResolveVersionArgument(),
 		"a configured flag is used verbatim",
 	)
 }
@@ -51,11 +62,16 @@ func TestVersionArgDefaultsToVersion(t *testing.T) {
 func TestFormulaRef(t *testing.T) {
 	t.Parallel()
 
-	require.Equal(t, "clover", brew.Config{Formula: "clover"}.FormulaRef(), "no tap")
+	require.Equal(
+		t,
+		"clover",
+		brew.New(clive.Info{}, brew.WithFormula("clover")).FormulaRef(),
+		"no tap",
+	)
 	require.Equal(
 		t,
 		"gechr/tap/clover",
-		brew.Config{Formula: "clover", Tap: "gechr/tap"}.FormulaRef(),
+		brew.New(clive.Info{}, brew.WithFormula("clover"), brew.WithTap("gechr/tap")).FormulaRef(),
 		"tap-qualified",
 	)
 }

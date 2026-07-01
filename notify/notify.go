@@ -17,10 +17,7 @@
 // calls [Check] before dispatching its command, and invokes the returned flush
 // function after:
 //
-//	flush := notify.Check(brew.Config{
-//		Info:    clive.Info{Module: "github.com/example/myapp"},
-//		Formula: "myapp",
-//	})
+//	flush := notify.Check(brew.New(clive.Info{Module: "github.com/example/myapp"}))
 //	defer flush()
 //
 // The per-tool kill switch MYAPP_NO_UPDATE_CHECK (derived from the binary name)

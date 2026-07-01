@@ -38,7 +38,7 @@ const (
 	updateTimeout = 5 * time.Minute
 	// host is the GitHub host whose gh credentials are used.
 	host = "github.com"
-	// defaultTokenEnv is the token env var consulted when Config.TokenEnv is unset.
+	// defaultTokenEnv is the token env var consulted when [WithTokenEnv] is unset.
 	defaultTokenEnv = "GITHUB_TOKEN" //nolint:gosec // G101: an env var name, not a credential
 	// checksumsFilename is goreleaser's combined checksums asset, validated by default.
 	checksumsFilename = "checksums.txt"
@@ -59,7 +59,7 @@ var currentVersion = clive.Current
 // for a follow-up install. It is a package var so tests can stub discovery
 // without touching the network.
 var resolve = func(ctx context.Context, cfg Config, prerelease bool) (*selfupdate.Updater, *selfupdate.Release, bool, error) {
-	owner, name, err := repo(cfg.Info)
+	owner, name, err := repo(cfg.info)
 	if err != nil {
 		return nil, nil, false, err
 	}
@@ -89,47 +89,34 @@ func ChannelFor(prerelease bool) Channel {
 	return Latest
 }
 
-// Config identifies the tool for a GitHub release-asset self-update. Either
-// Info.Repo or a github.com Info.Module is required to locate releases;
-// everything else has a sensible default.
+// Config identifies the tool for a GitHub release-asset self-update. Build it
+// with [New]: the info (a GitHub repo via Info.Repo or a github.com module) is
+// required, and optional behaviour is set with the With* [Option]s. It satisfies
+// [updater.Tool] for notify.
 type Config struct {
-	// Binary is the executable name located inside a downloaded archive and
-	// installed into Dir. Defaults to the repo (or module) name.
-	Binary string
-	// ChecksumFile is the name of the combined checksums asset verified against the
-	// download, for a release that names it other than goreleaser's default.
-	// Defaults to "checksums.txt". Ignored when SkipChecksum is set.
-	ChecksumFile string
-	// Dir is the directory the binary is installed into. A leading "~" and any
-	// $ENV references are expanded. Defaults to ~/.local/bin.
-	Dir string
-	// EnterpriseURL is the API base URL of a GitHub Enterprise instance, e.g.
-	// "https://ghe.example.com/api/v3/". When set, releases are fetched from there
-	// and the gh token is resolved for that host rather than github.com. Empty uses
-	// public github.com.
-	EnterpriseURL string
-	// Filters are optional regexp matched against asset names, to disambiguate a
-	// release that publishes several assets for the same OS/arch. An asset must
-	// match one of them in addition to the OS/arch/extension matching.
-	Filters []string
-	// Info carries the repo ("owner/name", via Info.Repo or a github.com
-	// Info.Module) used to query releases and build version links.
-	Info clive.Info
-	// Name is the display name shown in messages. Defaults to the binary name.
-	Name string
-	// Prerelease makes the default channel (used by Check and the notify
-	// integration) consider prereleases.
-	Prerelease bool
-	// SkipChecksum disables sha256 verification of the downloaded asset against a
-	// published checksums file. Verification is on by default.
-	SkipChecksum bool
-	// TokenEnv names an environment variable consulted before the gh CLI's stored
-	// credentials for a GitHub token. Defaults to "GITHUB_TOKEN".
-	TokenEnv string
-	// UniversalArch is the architecture name of a macOS universal binary asset
-	// (e.g. "all"); when set, that asset is chosen if none matches the host's
-	// specific arch.
-	UniversalArch string
+	binary        string
+	checksumFile  string
+	dir           string
+	enterpriseURL string
+	filters       []string
+	info          clive.Info
+	name          string
+	prerelease    bool
+	skipChecksum  bool
+	tokenEnv      string
+	universalArch string
+}
+
+// New builds a [Config] for a GitHub release-asset self-update. info carries the
+// GitHub repo (Info.Repo, or a github.com Info.Module) used to locate releases
+// and build version links. Optional behaviour is configured with the With*
+// [Option]s.
+func New(info clive.Info, opts ...Option) Config {
+	c := Config{info: info}
+	for _, opt := range opts {
+		opt(&c)
+	}
+	return c
 }
 
 // Check reports whether a newer release of cfg is available, without installing.
@@ -137,13 +124,13 @@ type Config struct {
 // binary distributed only as a release asset - or from a private repo - can call
 // it without a Go toolchain on PATH.
 func Check(ctx context.Context, cfg Config) error {
-	_, rel, found, err := resolve(ctx, cfg, cfg.Prerelease)
+	_, rel, found, err := resolve(ctx, cfg, cfg.prerelease)
 	if err != nil {
 		return fmt.Errorf("check for updates: %w", err)
 	}
 	current := currentVersion()
 	if !found || !isNewer(current, rel.Version()) {
-		updater.UpToDate(cfg.DisplayName(), cfg.Info, current)
+		updater.UpToDate(cfg.DisplayName(), cfg.info, current)
 		return nil
 	}
 	updater.HintFor(cfg, current, rel.Version())
@@ -155,7 +142,7 @@ func Update(ctx context.Context, cfg Config, channel Channel) error {
 	ctx, cancel := context.WithTimeout(ctx, updateTimeout)
 	defer cancel()
 
-	prerelease := cfg.Prerelease || channel == Prerelease
+	prerelease := cfg.prerelease || channel == Prerelease
 
 	var (
 		up    *selfupdate.Updater
@@ -174,7 +161,7 @@ func Update(ctx context.Context, cfg Config, channel Channel) error {
 
 	current := currentVersion()
 	if !found || !isNewer(current, rel.Version()) {
-		updater.UpToDate(cfg.DisplayName(), cfg.Info, current)
+		updater.UpToDate(cfg.DisplayName(), cfg.info, current)
 		return nil
 	}
 
@@ -190,7 +177,7 @@ func Update(ctx context.Context, cfg Config, channel Channel) error {
 		return fmt.Errorf("updating %s: %w", cfg.DisplayName(), err)
 	}
 
-	updater.Report(cfg.DisplayName(), cfg.Info, current, rel.Version())
+	updater.Report(cfg.DisplayName(), cfg.info, current, rel.Version())
 	return nil
 }
 
@@ -200,23 +187,23 @@ func Update(ctx context.Context, cfg Config, channel Channel) error {
 func newUpdater(cfg Config, prerelease bool) (*selfupdate.Updater, error) {
 	source, err := selfupdate.NewGitHubSource(selfupdate.GitHubConfig{
 		APIToken:          resolveToken(cfg),
-		EnterpriseBaseURL: cfg.EnterpriseURL,
+		EnterpriseBaseURL: cfg.enterpriseURL,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("github: build source: %w", err)
 	}
 	var validator selfupdate.Validator
-	if !cfg.SkipChecksum {
+	if !cfg.skipChecksum {
 		validator = &selfupdate.ChecksumValidator{
-			UniqueFilename: cmp.Or(cfg.ChecksumFile, checksumsFilename),
+			UniqueFilename: cmp.Or(cfg.checksumFile, checksumsFilename),
 		}
 	}
 	up, err := selfupdate.NewUpdater(selfupdate.Config{
 		Source:        source,
 		Validator:     validator,
-		Filters:       cfg.Filters,
+		Filters:       cfg.filters,
 		Prerelease:    prerelease,
-		UniversalArch: cfg.UniversalArch,
+		UniversalArch: cfg.universalArch,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("github: build updater: %w", err)
@@ -229,16 +216,16 @@ func newUpdater(cfg Config, prerelease bool) (*selfupdate.Updater, error) {
 // access, which still reads public repositories.
 func resolveToken(cfg Config) string {
 	gh, _ := ghauth.TokenForHost(tokenHost(cfg))
-	return cmp.Or(os.Getenv(cmp.Or(cfg.TokenEnv, defaultTokenEnv)), gh)
+	return cmp.Or(os.Getenv(cmp.Or(cfg.tokenEnv, defaultTokenEnv)), gh)
 }
 
 // tokenHost is the host whose gh credentials authenticate API calls: the
 // Enterprise host parsed from EnterpriseURL when set, else github.com.
 func tokenHost(cfg Config) string {
-	if cfg.EnterpriseURL == "" {
+	if cfg.enterpriseURL == "" {
 		return host
 	}
-	if u, err := url.Parse(cfg.EnterpriseURL); err == nil && u.Host != "" {
+	if u, err := url.Parse(cfg.enterpriseURL); err == nil && u.Host != "" {
 		return u.Host
 	}
 	return host
@@ -251,10 +238,11 @@ func tokenHost(cfg Config) string {
 // so the placeholder gives that step something to rename. The backup is removed
 // on success.
 func installPath(cfg Config) (string, error) {
-	dir := updater.InstallDir(cfg.Dir)
+	dir := updater.InstallDir(cfg.dir)
 	if dir == "" {
 		return "", fmt.Errorf(
-			"updating %s: cannot resolve an install directory; set Config.Dir", cfg.DisplayName(),
+			"updating %s: cannot resolve an install directory; use WithInstallDirectory",
+			cfg.DisplayName(),
 		)
 	}
 	if err := xos.EnsureDir(dir, dirPerm); err != nil {
@@ -316,31 +304,31 @@ func repo(info clive.Info) (string, string, error) {
 // BinaryName is the executable/command name, defaulting to the repo (or module)
 // name. It is also the name go-selfupdate looks for inside a downloaded archive.
 func (c Config) BinaryName() string {
-	if c.Binary != "" {
-		return c.Binary
+	if c.binary != "" {
+		return c.binary
 	}
-	if _, name, err := repo(c.Info); err == nil {
+	if _, name, err := repo(c.info); err == nil {
 		return name
 	}
-	if c.Info.Module != "" {
-		return path.Base(c.Info.Module)
+	if c.info.Module != "" {
+		return path.Base(c.info.Module)
 	}
 	return ""
 }
 
 // DisplayName is the human-facing name used in messages, defaulting to the binary
 // (and thus the repo) name when Name is unset.
-func (c Config) DisplayName() string { return updater.DisplayName(c.Name, c.BinaryName()) }
+func (c Config) DisplayName() string { return updater.DisplayName(c.name, c.BinaryName()) }
 
 // VersionLink renders v as a clickable link to its release or commit, delegating
 // to the embedded [clive.Info]. It lets [Config] satisfy [updater.Tool].
-func (c Config) VersionLink(v string) string { return c.Info.VersionLink(v) }
+func (c Config) VersionLink(v string) string { return c.info.VersionLink(v) }
 
 // LatestRef returns the latest release's tag, letting [Config] satisfy
 // [updater.Tool] so a github-distributed tool feeds notify the same "latest" the
 // updater installs. The client is unused: go-selfupdate manages its own HTTP.
 func (c Config) LatestRef(ctx context.Context, _ *http.Client) (string, error) {
-	_, rel, found, err := resolve(ctx, c, c.Prerelease)
+	_, rel, found, err := resolve(ctx, c, c.prerelease)
 	if err != nil {
 		return "", err
 	}

@@ -20,6 +20,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"path"
 	"regexp"
 	"strings"
 	"time"
@@ -36,7 +37,7 @@ const brewTimeout = 5 * time.Minute
 // defaultFetchTimeout bounds the initial `brew update` formula refresh, which is
 // normally quick. A much longer hang means a stuck network fetch, so we cut it
 // off well before the overall brewTimeout rather than blocking the whole update.
-// A consumer can override it per-update via [Config.FetchTimeout].
+// A consumer can override it per-update via [WithFetchTimeout].
 const defaultFetchTimeout = 2 * time.Minute
 
 // headBuild matches a dev/HEAD version like "0.1.0-gabc1234-dev", so an upgrade
@@ -87,56 +88,48 @@ func ChannelFor(dev, stable bool) Channel {
 	}
 }
 
-// Config identifies the tool for a Homebrew self-update. Only Info, Name, and
-// Formula are required; Tap/TapURL are needed for a formula outside homebrew/core.
+// Config identifies the tool for a Homebrew self-update. Build it with [New]:
+// only the module info is required - the formula name defaults to the module's
+// last path element, overridden with [WithFormula] - and optional behaviour is
+// set with the With* [Option]s. It satisfies [updater.Tool] for notify.
 type Config struct {
-	// Info carries the module path and repo for version checks and release links.
-	Info clive.Info
-	// Name is the display name shown in messages, e.g. "NGINX" for the nginx
-	// formula. Defaults to the binary name (and thus the formula) when unset.
-	Name string
-	// Formula is the Homebrew formula name.
-	Formula string
-	// Tap is the "owner/name" tap hosting the formula; empty means a core formula.
-	Tap string
-	// TapURL is the git remote for Tap, for a private tap brew cannot resolve by
-	// name; empty lets brew resolve a public tap.
-	TapURL string
-	// Binary is the executable name to clean up non-brew copies of; defaults to
-	// Formula.
-	Binary string
-	// VersionArg is the single argument passed to the installed binary to make it
-	// print its version, used to read the post-update version back. It is a
-	// "version" subcommand for some tools and a "--version" flag for others, so it
-	// is configurable; the zero value is "version".
-	VersionArg string
-	// OnConflict decides how non-Homebrew copies of the binary on PATH are
-	// handled; the zero value warns that each one may shadow the brew install.
-	OnConflict ConflictPolicy
-	// NoProxy clears the proxy variables for the brew subprocesses, so an update
-	// bypasses a proxy that cannot reach Homebrew or the formula's source.
-	NoProxy bool
-	// FetchTimeout bounds the initial `brew update` formula refresh; the zero
-	// value uses defaultFetchTimeout (two minutes). A tool on a slow link can
-	// raise it, or lower it to fail faster.
-	FetchTimeout time.Duration
-	// RemoveTaps lists Homebrew taps to untap before installing, so a formula
-	// that has moved to a new tap is not resolved from a stale one. Best-effort.
-	RemoveTaps []string
+	binary          string
+	fetchTimeout    time.Duration
+	formula         string
+	info            clive.Info
+	name            string
+	noProxy         bool
+	onConflict      ConflictPolicy
+	removeTaps      []string
+	tap             string
+	tapURL          string
+	versionArgument string
+}
+
+// New builds a [Config] for a Homebrew self-update. info carries the module and
+// repo used for version checks and release links; the Homebrew formula name
+// defaults to the last element of the module path and is overridden with
+// [WithFormula]. Optional behaviour is configured with the With* [Option]s.
+func New(info clive.Info, opts ...Option) Config {
+	c := Config{info: info}
+	for _, opt := range opts {
+		opt(&c)
+	}
+	return c
 }
 
 // Check reports whether a newer release of cfg is available, without
 // installing.
 func Check(ctx context.Context, cfg Config) error {
-	available, err := cfg.Info.UpdateAvailable(ctx)
+	available, err := cfg.info.UpdateAvailable(ctx)
 	if err != nil {
 		return fmt.Errorf("check for updates: %w", err)
 	}
 	if !available {
-		updater.UpToDate(cfg.DisplayName(), cfg.Info, clive.Current())
+		updater.UpToDate(cfg.DisplayName(), cfg.info, clive.Current())
 		return nil
 	}
-	latest, _ := cfg.Info.Latest(ctx)
+	latest, _ := cfg.info.Latest(ctx)
 	updater.HintFor(cfg, clive.Current(), latest)
 	return nil
 }
@@ -146,6 +139,12 @@ func Update(ctx context.Context, cfg Config, channel Channel) error {
 	ctx, cancel := context.WithTimeout(ctx, brewTimeout)
 	defer cancel()
 
+	if cfg.resolveFormula() == "" {
+		return fmt.Errorf(
+			"updating %s needs a formula; set a module or use brew.WithFormula",
+			cfg.DisplayName(),
+		)
+	}
 	brew, err := exec.LookPath("brew")
 	if err != nil {
 		return fmt.Errorf(
@@ -180,7 +179,7 @@ func (r *runner) fetch(ctx context.Context) error {
 		ctx,
 		fmt.Sprintf("Fetching latest %s Homebrew formula", name),
 		fmt.Sprintf("Timed out while fetching %s Homebrew formula", name),
-		cmp.Or(r.cfg.FetchTimeout, defaultFetchTimeout),
+		cmp.Or(r.cfg.fetchTimeout, defaultFetchTimeout),
 		func(ctx context.Context) error { return r.run(ctx, "update", "--quiet") },
 	)
 }
@@ -202,7 +201,7 @@ func (r *runner) upgrade(ctx context.Context) error {
 	if headBuild.MatchString(r.current) {
 		args = append(args, "--fetch-HEAD")
 	}
-	args = append(args, r.cfg.Formula)
+	args = append(args, r.cfg.resolveFormula())
 	res := updater.TransientSpinResult(ctx, fmt.Sprintf("Upgrading %s", r.cfg.DisplayName()),
 		func(ctx context.Context) error {
 			return r.run(ctx, args...)
@@ -214,7 +213,7 @@ func (r *runner) upgrade(ctx context.Context) error {
 	return updater.CompleteReport(
 		res,
 		r.cfg.DisplayName(),
-		r.cfg.Info,
+		r.cfg.info,
 		r.current,
 		r.installedVersion(ctx),
 	)
@@ -223,14 +222,14 @@ func (r *runner) upgrade(ctx context.Context) error {
 // reinstall uninstalls any existing copy then installs the chosen channel,
 // switching cleanly between stable and dev (--HEAD) builds.
 func (r *runner) reinstall(ctx context.Context, head bool) error {
-	r.brewSilent(ctx, "uninstall", "--ignore-dependencies", r.cfg.Formula)
+	r.brewSilent(ctx, "uninstall", "--ignore-dependencies", r.cfg.resolveFormula())
 	return r.install(ctx, head)
 }
 
 // install taps (when needed) and installs the formula, optionally from HEAD.
 func (r *runner) install(ctx context.Context, head bool) error {
 	r.removeTaps(ctx)
-	if r.cfg.Tap != "" {
+	if r.cfg.tap != "" {
 		if err := r.tap(ctx); err != nil {
 			return err
 		}
@@ -255,7 +254,7 @@ func (r *runner) install(ctx context.Context, head bool) error {
 // removeTaps untaps each stale tap in cfg, best-effort, so a relocated formula
 // is not resolved from an old tap. Errors (e.g. a tap not present) are ignored.
 func (r *runner) removeTaps(ctx context.Context) {
-	for _, t := range r.cfg.RemoveTaps {
+	for _, t := range r.cfg.removeTaps {
 		r.brewSilent(ctx, "untap", t)
 	}
 }
@@ -264,9 +263,9 @@ func (r *runner) removeTaps(ctx context.Context) {
 // formula resolves. It runs silently (no spinner line) but still returns an
 // error, so a genuine tap failure stops the update instead of being masked.
 func (r *runner) tap(ctx context.Context) error {
-	args := []string{"tap", r.cfg.Tap}
-	if r.cfg.TapURL != "" {
-		args = append(args, r.cfg.TapURL)
+	args := []string{"tap", r.cfg.tap}
+	if r.cfg.tapURL != "" {
+		args = append(args, r.cfg.tapURL)
 	}
 	return r.run(ctx, args...)
 }
@@ -274,13 +273,13 @@ func (r *runner) tap(ctx context.Context) error {
 // report logs the resulting version, as an old→new pair when it changed. It
 // returns nil so callers can `return r.report(ctx)` in the success path.
 func (r *runner) report(ctx context.Context) error {
-	updater.Report(r.cfg.DisplayName(), r.cfg.Info, r.current, r.installedVersion(ctx))
+	updater.Report(r.cfg.DisplayName(), r.cfg.info, r.current, r.installedVersion(ctx))
 	return nil
 }
 
 // installed reports whether brew already manages the formula.
 func (r *runner) installed(ctx context.Context) bool {
-	return r.brewCmd(ctx, "list", r.cfg.Formula).Run() == nil
+	return r.brewCmd(ctx, "list", r.cfg.resolveFormula()).Run() == nil
 }
 
 // installedVersion returns the version reported by the freshly-installed binary
@@ -294,14 +293,14 @@ func (r *runner) installed(ctx context.Context) bool {
 // for a --HEAD build, where Homebrew names the keg "HEAD-<hash>" while the binary
 // reports "X.Y.Z-N-g<hash>-dev" - two spellings of one commit that would
 // otherwise look like an update when nothing actually changed. The binary is
-// asked for its version via [Config.VersionArg], which prints [clive.Current].
+// asked for its version via [WithVersionArgument], which prints [clive.Current].
 func (r *runner) installedVersion(ctx context.Context) string {
 	dir := r.brewBinDir(ctx)
 	if dir == "" {
 		return ""
 	}
 	bin := dir + "/" + r.cfg.BinaryName()
-	out, err := exec.CommandContext(ctx, bin, r.cfg.versionArg()).Output()
+	out, err := exec.CommandContext(ctx, bin, r.cfg.resolveVersionArgument()).Output()
 	if err != nil {
 		return ""
 	}
@@ -319,10 +318,10 @@ func (r *runner) brewBinDir(ctx context.Context) string {
 }
 
 // cleanup handles copies of the binary found on PATH outside Homebrew, so the
-// brew install is the one that runs. Its action is governed by cfg.OnConflict.
+// brew install is the one that runs. Its action is governed by cfg.onConflict.
 // It is best-effort and never fails the update.
 func (r *runner) cleanup(ctx context.Context) {
-	if r.cfg.OnConflict == ConflictIgnore {
+	if r.cfg.onConflict == ConflictIgnore {
 		return
 	}
 	brewBin := r.brewBinDir(ctx)
@@ -357,12 +356,12 @@ func (r *runner) cleanup(ctx context.Context) {
 	}
 }
 
-// resolveConflict applies cfg.OnConflict to a single non-Homebrew copy at path.
+// resolveConflict applies cfg.onConflict to a single non-Homebrew copy at path.
 // shadows reports whether the copy precedes Homebrew on PATH, and so is the one a
 // name lookup actually resolves to. A warn stays silent about a copy that does
 // not shadow, since it is harmless; an uninstall trashes every stray copy.
 func (r *runner) resolveConflict(path string, shadows bool) {
-	if r.cfg.OnConflict == ConflictWarn {
+	if r.cfg.onConflict == ConflictWarn {
 		if shadows {
 			clog.Warn().
 				Path("path", path).
@@ -440,11 +439,11 @@ func (r *runner) brewSilent(ctx context.Context, args ...string) {
 }
 
 // brewCmd builds a brew command with Homebrew's env-hint noise suppressed,
-// clearing the proxy when cfg.NoProxy is set.
+// clearing the proxy when cfg.noProxy is set.
 func (r *runner) brewCmd(ctx context.Context, args ...string) *exec.Cmd {
 	cmd := exec.CommandContext(ctx, r.brew, args...) //nolint:gosec // controlled args
 	cmd.Env = append(os.Environ(), "HOMEBREW_NO_ENV_HINTS=1")
-	if r.cfg.NoProxy {
+	if r.cfg.noProxy {
 		cmd.Env = append(cmd.Env, updater.ProxyBypass()...)
 	}
 	return cmd
@@ -453,30 +452,43 @@ func (r *runner) brewCmd(ctx context.Context, args ...string) *exec.Cmd {
 // BinaryName is the executable/command name, defaulting to the formula. Shared
 // by other update mechanisms (the periodic check) that name the `<binary>
 // update` command.
-func (c Config) BinaryName() string { return cmp.Or(c.Binary, c.Formula) }
+func (c Config) BinaryName() string { return cmp.Or(c.binary, c.resolveFormula()) }
 
-// versionArg is the argument used to ask the installed binary for its version,
-// defaulting to the "version" subcommand when unset.
-func (c Config) versionArg() string { return cmp.Or(c.VersionArg, "version") }
+// resolveVersionArgument is the argument used to ask the installed binary for its
+// version, defaulting to the "version" subcommand when unset.
+func (c Config) resolveVersionArgument() string { return cmp.Or(c.versionArgument, "version") }
 
 // DisplayName is the human-facing name used in messages, defaulting to the
 // binary (and thus the formula) name when Name is unset.
-func (c Config) DisplayName() string { return updater.DisplayName(c.Name, c.BinaryName()) }
+func (c Config) DisplayName() string { return updater.DisplayName(c.name, c.BinaryName()) }
 
 // VersionLink renders v as a clickable link to its release or commit, delegating
 // to the embedded [clive.Info]. It lets [Config] satisfy [updater.Tool].
-func (c Config) VersionLink(v string) string { return c.Info.VersionLink(v) }
+func (c Config) VersionLink(v string) string { return c.info.VersionLink(v) }
 
 // LatestRef returns the highest semver tag in the tool's repository, delegating
 // to [clive.Info.LatestTag]. It lets [Config] satisfy [updater.Tool].
 func (c Config) LatestRef(ctx context.Context, client *http.Client) (string, error) {
-	return c.Info.LatestTag(ctx, client)
+	return c.info.LatestTag(ctx, client)
 }
 
 // formulaRef is the brew install target: tap-qualified when a tap is set.
 func (c Config) formulaRef() string {
-	if c.Tap != "" {
-		return c.Tap + "/" + c.Formula
+	if c.tap != "" {
+		return c.tap + "/" + c.resolveFormula()
 	}
-	return c.Formula
+	return c.resolveFormula()
+}
+
+// resolveFormula is the Homebrew formula name: [WithFormula] when set, else the
+// last element of the module path (e.g. github.com/x/myapp -> myapp), or "" when
+// neither is available.
+func (c Config) resolveFormula() string {
+	if c.formula != "" {
+		return c.formula
+	}
+	if c.info.Module == "" {
+		return ""
+	}
+	return path.Base(c.info.Module)
 }

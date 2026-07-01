@@ -47,17 +47,17 @@ func TestChannelFor(t *testing.T) {
 func TestBinaryName(t *testing.T) {
 	t.Parallel()
 
-	require.Equal(t, "clive", Config{Binary: "clive"}.BinaryName(), "explicit binary wins")
+	require.Equal(t, "clive", Config{binary: "clive"}.BinaryName(), "explicit binary wins")
 	require.Equal(
 		t,
 		"clover",
-		Config{Info: clive.Info{Repo: "gechr/clover"}}.BinaryName(),
+		Config{info: clive.Info{Repo: "gechr/clover"}}.BinaryName(),
 		"defaults to the repo name",
 	)
 	require.Equal(
 		t,
 		"myapp",
-		Config{Info: clive.Info{Module: "github.com/gechr/myapp"}}.BinaryName(),
+		Config{info: clive.Info{Module: "github.com/gechr/myapp"}}.BinaryName(),
 		"derives from a github.com module",
 	)
 }
@@ -65,8 +65,8 @@ func TestBinaryName(t *testing.T) {
 func TestDisplayName(t *testing.T) {
 	t.Parallel()
 
-	require.Equal(t, "clive", Config{Binary: "clive"}.DisplayName(), "defaults to the binary name")
-	require.Equal(t, "Clive", Config{Name: "Clive", Binary: "clive"}.DisplayName())
+	require.Equal(t, "clive", Config{binary: "clive"}.DisplayName(), "defaults to the binary name")
+	require.Equal(t, "Clive", Config{name: "Clive", binary: "clive"}.DisplayName())
 }
 
 func TestRepo(t *testing.T) {
@@ -96,7 +96,7 @@ func TestResolveTokenEnvOverride(t *testing.T) {
 	require.Equal(
 		t,
 		"from-env",
-		resolveToken(Config{TokenEnv: "CLIVE_TEST_TOKEN"}),
+		resolveToken(Config{tokenEnv: "CLIVE_TEST_TOKEN"}),
 		"the configured env var beats any gh credential",
 	)
 }
@@ -108,13 +108,13 @@ func TestTokenHost(t *testing.T) {
 	require.Equal(
 		t,
 		"ghe.example.com",
-		tokenHost(Config{EnterpriseURL: "https://ghe.example.com/api/v3/"}),
+		tokenHost(Config{enterpriseURL: "https://ghe.example.com/api/v3/"}),
 		"derives the host from an Enterprise API URL",
 	)
 	require.Equal(
 		t,
 		"github.com",
-		tokenHost(Config{EnterpriseURL: "://bad"}),
+		tokenHost(Config{enterpriseURL: "://bad"}),
 		"falls back to github.com when the URL has no host",
 	)
 }
@@ -134,7 +134,7 @@ func TestCheckUpToDateWhenNotFound(t *testing.T) {
 	withResolve(t, notFound)
 	require.NoError(
 		t,
-		Check(context.Background(), Config{Info: clive.Info{Repo: "gechr/clive"}}),
+		Check(context.Background(), Config{info: clive.Info{Repo: "gechr/clive"}}),
 		"no release found reports up-to-date, not an error",
 	)
 }
@@ -148,7 +148,7 @@ func TestCheckPropagatesError(t *testing.T) {
 			return nil, nil, false, boom
 		},
 	)
-	err := Check(context.Background(), Config{Info: clive.Info{Repo: "gechr/clive"}})
+	err := Check(context.Background(), Config{info: clive.Info{Repo: "gechr/clive"}})
 	require.ErrorIs(t, err, boom)
 	require.ErrorContains(t, err, "check for updates")
 }
@@ -159,7 +159,7 @@ func TestUpdateNoOpWhenNotFound(t *testing.T) {
 	withResolve(t, notFound)
 	require.NoError(
 		t,
-		Update(context.Background(), Config{Info: clive.Info{Repo: "gechr/clive"}}, Latest),
+		Update(context.Background(), Config{info: clive.Info{Repo: "gechr/clive"}}, Latest),
 		"no release found is a clean no-op",
 	)
 }
@@ -167,7 +167,7 @@ func TestUpdateNoOpWhenNotFound(t *testing.T) {
 func TestLatestRefNotFound(t *testing.T) {
 	// Not parallel: stubs the package-level resolve seam.
 	withResolve(t, notFound)
-	ref, err := Config{Info: clive.Info{Repo: "gechr/clive"}}.LatestRef(context.Background(), nil)
+	ref, err := Config{info: clive.Info{Repo: "gechr/clive"}}.LatestRef(context.Background(), nil)
 	require.NoError(t, err)
 	require.Empty(t, ref)
 }
