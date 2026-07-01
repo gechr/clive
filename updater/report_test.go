@@ -42,7 +42,7 @@ func TestCompleteReportEmitsUpToDateOutcome(t *testing.T) {
 
 	require.NoError(t, updater.CompleteReport(res, "App", clive.Info{}, "1.0.8", "1.0.8"))
 
-	require.Equal(t, "WRN ⚠️ App is already up-to-date version=1.0.8\n", buf.String())
+	require.Equal(t, "INF 🚀 App is already up-to-date version=1.0.8\n", buf.String())
 }
 
 func TestCompleteReportTreatsSemanticEqualAsUpToDate(t *testing.T) {
@@ -53,7 +53,7 @@ func TestCompleteReportTreatsSemanticEqualAsUpToDate(t *testing.T) {
 
 	require.NoError(t, updater.CompleteReport(res, "App", clive.Info{}, "1.2", "1.2.0"))
 
-	require.Equal(t, "WRN ⚠️ App is already up-to-date version=1.2.0\n", buf.String())
+	require.Equal(t, "INF 🚀 App is already up-to-date version=1.2.0\n", buf.String())
 }
 
 func completedUpgradeResult(t *testing.T, buf *bytes.Buffer) *fx.WaitResult {

@@ -157,6 +157,13 @@ func Update(ctx context.Context, cfg Config, channel Channel) error {
 	if err := r.fetch(ctx); err != nil {
 		return err
 	}
+	// Record the Homebrew install's own version before we touch it, so the report
+	// compares the brew binary against itself. clive.Current() is the *running*
+	// binary, which - when a non-Homebrew copy shadows the brew install on PATH -
+	// is a different install entirely, and comparing its version against the
+	// freshly-installed brew binary yields a nonsensical "downgrade". Empty when
+	// brew has nothing installed yet (a fresh install), which reports no change.
+	r.before = r.installedVersion(ctx)
 	switch channel {
 	case Stable:
 		return r.reinstall(ctx, false)
@@ -186,8 +193,9 @@ func (r *runner) fetch(ctx context.Context) error {
 
 // runner holds the brew invocation state for one update.
 type runner struct {
-	cfg     Config
+	before  string
 	brew    string
+	cfg     Config
 	current string
 }
 
@@ -214,7 +222,7 @@ func (r *runner) upgrade(ctx context.Context) error {
 		res,
 		r.cfg.DisplayName(),
 		r.cfg.info,
-		r.current,
+		r.before,
 		r.installedVersion(ctx),
 	)
 }
@@ -273,7 +281,7 @@ func (r *runner) tap(ctx context.Context) error {
 // report logs the resulting version, as an old→new pair when it changed. It
 // returns nil so callers can `return r.report(ctx)` in the success path.
 func (r *runner) report(ctx context.Context) error {
-	updater.Report(r.cfg.DisplayName(), r.cfg.info, r.current, r.installedVersion(ctx))
+	updater.Report(r.cfg.DisplayName(), r.cfg.info, r.before, r.installedVersion(ctx))
 	return nil
 }
 

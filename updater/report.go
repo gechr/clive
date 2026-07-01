@@ -45,19 +45,21 @@ func CompleteReport(res *fx.WaitResult, name string, info clive.Info, old, curre
 	return CompleteUpToDate(res, name, info, cmp.Or(current, old))
 }
 
-// UpToDate warns that no update was applied, including the version field only
+const upToDateSymbol = "🚀"
+
+// UpToDate reports that no update was applied, including the version field only
 // when a version is known (a go-run build has none to show).
 func UpToDate(name string, info clive.Info, ver string) {
-	e := clog.Warn()
+	e := clog.Info().Symbol(upToDateSymbol)
 	if ver != "" {
 		e = e.Str("version", info.VersionLink(ver))
 	}
 	e.Msgf("%s is already up-to-date", name)
 }
 
-// CompleteUpToDate emits an up-to-date warning as a spinner completion line.
+// CompleteUpToDate emits the up-to-date notice as a spinner completion line.
 func CompleteUpToDate(res *fx.WaitResult, name string, info clive.Info, ver string) error {
-	res = res.OnSuccessLevel(clog.LevelWarn)
+	res = res.Symbol(upToDateSymbol)
 	if ver != "" {
 		res = res.Str("version", info.VersionLink(ver))
 	}
@@ -65,8 +67,8 @@ func CompleteUpToDate(res *fx.WaitResult, name string, info clive.Info, ver stri
 }
 
 // outcome picks the log symbol and verb for a version change, distinguishing an
-// upgrade from a downgrade so a backwards move (e.g. a shadowing copy reporting a
-// higher "from" than the freshly-installed release) is not mislabelled. The final
+// upgrade from a downgrade so a backwards move (e.g. switching to the stable
+// channel from a higher dev build) is not mislabelled as an upgrade. The final
 // return is false when either version is empty or the two are semantically equal
 // (so "1.2" and "1.2.0", or a dev build and its base, are not reported as a
 // change), letting the caller fall back to an up-to-date report.
