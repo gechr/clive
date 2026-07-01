@@ -55,12 +55,13 @@ func Spin(ctx context.Context, msg string, fn func(context.Context) error, field
 // clearing or surfacing the killed subprocess's opaque error - and returns
 // [ErrReported] so the caller can exit non-zero without a consumer
 // double-reporting. Any other failure behaves like [Spin] (silent spinner, fn's
-// error returned for the caller to report); success logs the normal completion
-// line (with elapsed). A context cancellation (e.g. Ctrl-C) is not a timeout and
-// falls through to the silent path.
+// error returned for the caller to report); success supplants the spinner with
+// doneMsg (with elapsed), so the finished line can read "Fetched ..." in place of
+// the running "Fetching ..." label. A context cancellation (e.g. Ctrl-C) is not a
+// timeout and falls through to the silent path.
 func SpinTimeout(
 	ctx context.Context,
-	msg, timeoutMsg string,
+	msg, doneMsg, timeoutMsg string,
 	timeout time.Duration,
 	fn func(context.Context) error,
 ) error {
@@ -87,7 +88,7 @@ func SpinTimeout(
 		}
 		return err
 	}
-	return res.Symbol(doneSymbol).Msg(msg)
+	return res.Symbol(doneSymbol).Msg(doneMsg)
 }
 
 // SpinResult runs fn under a clog spinner labelled msg and returns the

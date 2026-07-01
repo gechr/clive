@@ -31,19 +31,23 @@ func captureDefault(t *testing.T) *bytes.Buffer {
 }
 
 func TestSpinTimeoutReturnsNilOnSuccess(t *testing.T) {
-	captureDefault(t)
+	buf := captureDefault(t)
 
-	err := updater.SpinTimeout(context.Background(), "Fetching", "Timed out", time.Minute,
+	err := updater.SpinTimeout(context.Background(), "Fetching", "Fetched", "Timed out", time.Minute,
 		func(context.Context) error { return nil })
 
 	require.NoError(t, err)
+
+	// Success supplants the running "Fetching" label with the done message, so the
+	// finished line reads "Fetched" rather than repeating "Fetching".
+	require.Equal(t, "INF ⏳ Fetching\nINF ✅ Fetched\n", buf.String())
 }
 
 func TestSpinTimeoutSurfacesNonTimeoutError(t *testing.T) {
 	captureDefault(t)
 
 	sentinel := errors.New("brew exploded")
-	err := updater.SpinTimeout(context.Background(), "Fetching", "Timed out", time.Minute,
+	err := updater.SpinTimeout(context.Background(), "Fetching", "Fetched", "Timed out", time.Minute,
 		func(context.Context) error { return sentinel })
 
 	// A genuine failure is returned verbatim for the caller to report - it is not
@@ -57,6 +61,7 @@ func TestSpinTimeoutSupplantsSpinnerOnTimeout(t *testing.T) {
 
 	err := updater.SpinTimeout(context.Background(),
 		"Fetching latest Clover Homebrew formula",
+		"Fetched latest Clover Homebrew formula",
 		"Timed out while fetching Clover Homebrew formula",
 		10*time.Millisecond,
 		func(ctx context.Context) error {

@@ -185,6 +185,7 @@ func (r *runner) fetch(ctx context.Context) error {
 	return updater.SpinTimeout(
 		ctx,
 		fmt.Sprintf("Fetching latest %s Homebrew formula", name),
+		fmt.Sprintf("Fetched latest %s Homebrew formula", name),
 		fmt.Sprintf("Timed out while fetching %s Homebrew formula", name),
 		cmp.Or(r.cfg.fetchTimeout, defaultFetchTimeout),
 		func(ctx context.Context) error { return r.run(ctx, "update", "--quiet") },
