@@ -210,7 +210,7 @@ func (r *runner) upgrade(ctx context.Context) error {
 	if headBuild.MatchString(r.current) {
 		args = append(args, "--fetch-HEAD")
 	}
-	args = append(args, r.cfg.resolveFormula())
+	args = append(args, r.cfg.formulaRef())
 	res := updater.TransientSpinResult(ctx, fmt.Sprintf("Upgrading %s", r.cfg.DisplayName()),
 		func(ctx context.Context) error {
 			return r.run(ctx, args...)
@@ -231,7 +231,7 @@ func (r *runner) upgrade(ctx context.Context) error {
 // reinstall uninstalls any existing copy then installs the chosen channel,
 // switching cleanly between stable and dev (--HEAD) builds.
 func (r *runner) reinstall(ctx context.Context, head bool) error {
-	r.brewSilent(ctx, "uninstall", "--ignore-dependencies", r.cfg.resolveFormula())
+	r.brewSilent(ctx, "uninstall", "--ignore-dependencies", r.cfg.formulaRef())
 	return r.install(ctx, head)
 }
 
@@ -288,7 +288,7 @@ func (r *runner) report(ctx context.Context) error {
 
 // installed reports whether brew already manages the formula.
 func (r *runner) installed(ctx context.Context) bool {
-	return r.brewCmd(ctx, "list", r.cfg.resolveFormula()).Run() == nil
+	return r.brewCmd(ctx, "list", r.cfg.formulaRef()).Run() == nil
 }
 
 // installedVersion returns the version reported by the freshly-installed binary
