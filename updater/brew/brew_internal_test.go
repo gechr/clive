@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/gechr/clive"
+	xstrings "github.com/gechr/x/strings"
 	"github.com/stretchr/testify/require"
 )
 
@@ -109,7 +110,14 @@ func TestInstalledVersionUsesDefaultResolver(t *testing.T) {
 	require.NoError(t, os.MkdirAll(filepath.Join(prefix, "bin"), 0o755))
 
 	binary := filepath.Join(prefix, "bin", "app")
-	require.NoError(t, os.WriteFile(binary, []byte("#!/bin/sh\necho \"$*\" >> "+shellQuote(log)+"\necho v0.2.3\n"), 0o755))
+	require.NoError(
+		t,
+		os.WriteFile(
+			binary,
+			[]byte("#!/bin/sh\necho \"$*\" >> "+shellQuote(log)+"\necho v0.2.3\n"),
+			0o755,
+		),
+	)
 
 	brew := filepath.Join(dir, "brew")
 	script := "#!/bin/sh\n" +
@@ -137,7 +145,9 @@ func TestInstalledVersionUsesConfiguredResolver(t *testing.T) {
 	binary := filepath.Join(prefix, "bin", "app")
 	require.NoError(t, os.WriteFile(
 		binary,
-		[]byte("#!/bin/sh\necho \"$*\" >> "+shellQuote(log)+"\nprintf '{\"version\":\"1.2.3\"}\\n'\n"),
+		[]byte(
+			"#!/bin/sh\necho \"$*\" >> "+shellQuote(log)+"\nprintf '{\"version\":\"1.2.3\"}\\n'\n",
+		),
 		0o755,
 	))
 

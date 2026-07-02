@@ -33,8 +33,14 @@ func captureDefault(t *testing.T) *bytes.Buffer {
 func TestSpinTimeoutReturnsNilOnSuccess(t *testing.T) {
 	buf := captureDefault(t)
 
-	err := updater.SpinTimeout(context.Background(), "Fetching", "Fetched", "Timed out", time.Minute,
-		func(context.Context) error { return nil })
+	err := updater.SpinTimeout(
+		context.Background(),
+		"Fetching",
+		"Fetched",
+		"Timed out",
+		time.Minute,
+		func(context.Context) error { return nil },
+	)
 
 	require.NoError(t, err)
 
@@ -47,8 +53,14 @@ func TestSpinTimeoutSurfacesNonTimeoutError(t *testing.T) {
 	captureDefault(t)
 
 	sentinel := errors.New("brew exploded")
-	err := updater.SpinTimeout(context.Background(), "Fetching", "Fetched", "Timed out", time.Minute,
-		func(context.Context) error { return sentinel })
+	err := updater.SpinTimeout(
+		context.Background(),
+		"Fetching",
+		"Fetched",
+		"Timed out",
+		time.Minute,
+		func(context.Context) error { return sentinel },
+	)
 
 	// A genuine failure is returned verbatim for the caller to report - it is not
 	// masked as a timeout, and it is not the already-reported sentinel.

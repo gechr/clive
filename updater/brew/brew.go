@@ -22,6 +22,7 @@ import (
 	"os/exec"
 	"path"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -29,6 +30,7 @@ import (
 	"github.com/gechr/clive/updater"
 	"github.com/gechr/clog"
 	xos "github.com/gechr/x/os"
+	xstrings "github.com/gechr/x/strings"
 )
 
 // brewTimeout bounds a full update; compiling --HEAD from source can be slow.
@@ -276,11 +278,22 @@ func (r *runner) removeTaps(ctx context.Context) {
 // formula resolves. It runs silently (no spinner line) but still returns an
 // error, so a genuine tap failure stops the update instead of being masked.
 func (r *runner) tap(ctx context.Context) error {
+	if r.tapInstalled(ctx) {
+		return nil
+	}
 	args := []string{"tap", r.cfg.tap}
 	if r.cfg.tapURL != "" {
 		args = append(args, r.cfg.tapURL)
 	}
 	return r.run(ctx, args...)
+}
+
+func (r *runner) tapInstalled(ctx context.Context) bool {
+	out, err := r.brewCmd(ctx, "tap").Output()
+	if err != nil {
+		return false
+	}
+	return slices.Contains(xstrings.SplitLines(string(out)), r.cfg.tap)
 }
 
 // report logs the resulting version, as an old→new pair when it changed. It
