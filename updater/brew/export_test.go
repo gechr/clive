@@ -5,5 +5,3 @@ package brew
 var HeadBuild = headBuild
 
 func (c Config) FormulaRef() string { return c.formulaRef() }
-
-func (c Config) ResolveVersionArgument() string { return c.resolveVersionArgument() }

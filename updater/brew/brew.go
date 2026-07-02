@@ -103,8 +103,12 @@ type Config struct {
 	removeTaps      []string
 	tap             string
 	tapURL          string
-	versionArgument string
+	versionResolver ResolveVersionFunc
 }
+
+// ResolveVersionFunc returns the version reported by the Homebrew-managed
+// binary at bin.
+type ResolveVersionFunc func(ctx context.Context, bin string) (string, error)
 
 // New builds a [Config] for a Homebrew self-update. info carries the module and
 // repo used for version checks and release links; the Homebrew formula name
@@ -301,19 +305,18 @@ func (r *runner) installed(ctx context.Context) bool {
 // ([clive.Current]): both are the binary's own git-describe string. That matters
 // for a --HEAD build, where Homebrew names the keg "HEAD-<hash>" while the binary
 // reports "X.Y.Z-N-g<hash>-dev" - two spellings of one commit that would
-// otherwise look like an update when nothing actually changed. The binary is
-// asked for its version via [WithVersionArgument], which prints [clive.Current].
+// otherwise look like an update when nothing actually changed.
 func (r *runner) installedVersion(ctx context.Context) string {
 	dir := r.brewBinDir(ctx)
 	if dir == "" {
 		return ""
 	}
 	bin := dir + "/" + r.cfg.BinaryName()
-	out, err := exec.CommandContext(ctx, bin, r.cfg.resolveVersionArgument()).Output()
+	version, err := r.cfg.resolveVersion(ctx, bin)
 	if err != nil {
 		return ""
 	}
-	return strings.TrimSpace(string(out))
+	return strings.TrimSpace(version)
 }
 
 // brewBinDir returns Homebrew's bin directory (<prefix>/bin), or "" when the
@@ -463,9 +466,20 @@ func (r *runner) brewCmd(ctx context.Context, args ...string) *exec.Cmd {
 // update` command.
 func (c Config) BinaryName() string { return cmp.Or(c.binary, c.resolveFormula()) }
 
-// resolveVersionArgument is the argument used to ask the installed binary for its
-// version, defaulting to the "version" subcommand when unset.
-func (c Config) resolveVersionArgument() string { return cmp.Or(c.versionArgument, "version") }
+func (c Config) resolveVersion(ctx context.Context, bin string) (string, error) {
+	if c.versionResolver != nil {
+		return c.versionResolver(ctx, bin)
+	}
+	return defaultResolveVersion(ctx, bin)
+}
+
+func defaultResolveVersion(ctx context.Context, bin string) (string, error) {
+	out, err := exec.CommandContext(ctx, bin, "version").Output()
+	if err != nil {
+		return "", err
+	}
+	return string(out), nil
+}
 
 // DisplayName is the human-facing name used in messages, defaulting to the
 // binary (and thus the formula) name when Name is unset.

@@ -42,23 +42,6 @@ func TestBinaryDefaultsToFormula(t *testing.T) {
 	)
 }
 
-func TestVersionArgumentDefaultsToVersion(t *testing.T) {
-	t.Parallel()
-
-	require.Equal(
-		t,
-		"version",
-		brew.New(clive.Info{}).ResolveVersionArgument(),
-		"defaults to the version subcommand",
-	)
-	require.Equal(
-		t,
-		"--version",
-		brew.New(clive.Info{}, brew.WithVersionArgument("--version")).ResolveVersionArgument(),
-		"a configured flag is used verbatim",
-	)
-}
-
 func TestFormulaRef(t *testing.T) {
 	t.Parallel()
 

@@ -44,6 +44,8 @@ func WithTap(tap string) Option { return func(c *Config) { c.tap = tap } }
 // cannot resolve by name; empty lets brew resolve a public tap.
 func WithTapURL(url string) Option { return func(c *Config) { c.tapURL = url } }
 
-// WithVersionArgument sets the single argument passed to the installed binary to make
-// it print its version; the zero value is "version".
-func WithVersionArgument(arg string) Option { return func(c *Config) { c.versionArgument = arg } }
+// WithResolveVersionFunc sets how the Homebrew-managed binary's version is
+// read; the zero value runs `<binary> version`.
+func WithResolveVersionFunc(fn ResolveVersionFunc) Option {
+	return func(c *Config) { c.versionResolver = fn }
+}
