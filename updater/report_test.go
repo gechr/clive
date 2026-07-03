@@ -23,6 +23,20 @@ func TestCompleteReportEmitsUpgradedOutcome(t *testing.T) {
 	require.Equal(t, "INF ⬆️ Upgraded App from=1.0.7 to=1.0.8\n", buf.String())
 }
 
+func TestCompleteReportTreatsDevBuildAsUpgradeFromBase(t *testing.T) {
+	t.Parallel()
+
+	var buf bytes.Buffer
+	res := completedUpgradeResult(t, &buf)
+
+	require.NoError(
+		t,
+		updater.CompleteReport(res, "App", clive.Info{}, "1.0.0", "1.0.0-8-g91a4846-dev"),
+	)
+
+	require.Equal(t, "INF ⬆️ Upgraded App from=1.0.0 to=1.0.0-8-g91a4846-dev\n", buf.String())
+}
+
 func TestCompleteReportEmitsDowngradedOutcome(t *testing.T) {
 	t.Parallel()
 

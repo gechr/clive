@@ -70,8 +70,8 @@ func CompleteUpToDate(res *fx.WaitResult, name string, info clive.Info, ver stri
 // upgrade from a downgrade so a backwards move (e.g. switching to the stable
 // channel from a higher dev build) is not mislabelled as an upgrade. The final
 // return is false when either version is empty or the two are semantically equal
-// (so "1.2" and "1.2.0", or a dev build and its base, are not reported as a
-// change), letting the caller fall back to an up-to-date report.
+// (so "1.2" and "1.2.0" are not reported as a change), letting the caller fall
+// back to an up-to-date report.
 func outcome(old, current string) (string, string, bool) {
 	if old == "" || current == "" {
 		return "", "", false

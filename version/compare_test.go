@@ -100,3 +100,47 @@ func TestEqualString(t *testing.T) {
 		})
 	}
 }
+
+func TestCompareStringTreatsDevBuildAsNewerThanBase(t *testing.T) {
+	t.Parallel()
+
+	assert.Equal(t, 1, version.CompareString("1.0.0-8-g91a4846-dev", "1.0.0"))
+	assert.Equal(t, -1, version.CompareString("1.0.0", "1.0.0-8-g91a4846-dev"))
+}
+
+func TestCompareStringOrdersDevBuildsByBaseThenCommitCount(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		a, b string
+		want int
+	}{
+		{name: "newer base wins", a: "1.1.0-1-g1111111-dev", b: "1.0.0-99-g9999999-dev", want: 1},
+		{name: "lower base loses", a: "1.0.0-99-g9999999-dev", b: "1.1.0-1-g1111111-dev", want: -1},
+		{
+			name: "higher count wins on same base",
+			a:    "1.0.0-9-g9999999-dev",
+			b:    "1.0.0-8-g8888888-dev",
+			want: 1,
+		},
+		{
+			name: "lower count loses on same base",
+			a:    "1.0.0-8-g8888888-dev",
+			b:    "1.0.0-9-g9999999-dev",
+			want: -1,
+		},
+		{
+			name: "dev after rc stays below final",
+			a:    "1.0.0-rc1-5-g5555555-dev",
+			b:    "1.0.0",
+			want: -1,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			assert.Equal(t, tt.want, version.CompareString(tt.a, tt.b))
+		})
+	}
+}

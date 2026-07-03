@@ -3,11 +3,11 @@ module github.com/gechr/clive
 go 1.26.2
 
 require (
-	charm.land/lipgloss/v2 v2.0.4
+	charm.land/lipgloss/v2 v2.0.5
 	github.com/cli/go-gh/v2 v2.13.0
 	github.com/creativeprojects/go-selfupdate v1.5.2
 	github.com/gechr/clog v0.11.12
-	github.com/gechr/x v0.1.14
+	github.com/gechr/x v0.2.1
 	github.com/hashicorp/go-version v1.9.0
 	github.com/stretchr/testify v1.11.1
 )

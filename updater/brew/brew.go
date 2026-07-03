@@ -255,11 +255,11 @@ func (r *runner) install(ctx context.Context, head bool) error {
 	}
 	args = append(args, r.cfg.formulaRef())
 
-	verb := "Installing"
+	msg := fmt.Sprintf("Installing %s", r.cfg.DisplayName())
 	if head {
-		verb = "Compiling"
+		msg = fmt.Sprintf("Compiling %s from source", r.cfg.DisplayName())
 	}
-	if err := r.spin(ctx, fmt.Sprintf("%s %s", verb, r.cfg.DisplayName()), args...); err != nil {
+	if err := r.spin(ctx, msg, args...); err != nil {
 		return err
 	}
 	r.cleanup(ctx)

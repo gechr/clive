@@ -72,9 +72,9 @@ func TestSpinTimeoutSupplantsSpinnerOnTimeout(t *testing.T) {
 	buf := captureDefault(t)
 
 	err := updater.SpinTimeout(context.Background(),
-		"Fetching latest Clover Homebrew formula",
-		"Fetched latest Clover Homebrew formula",
-		"Timed out while fetching Clover Homebrew formula",
+		"Fetching latest App Homebrew formula",
+		"Fetched latest App Homebrew formula",
+		"Timed out while fetching App Homebrew formula",
 		10*time.Millisecond,
 		func(ctx context.Context) error {
 			<-ctx.Done()
@@ -90,8 +90,8 @@ func TestSpinTimeoutSupplantsSpinnerOnTimeout(t *testing.T) {
 	// trailing error= field carrying brew's opaque killed-process error, and no
 	// second generic failure line.
 	require.Equal(t,
-		"INF ⏳ Fetching latest Clover Homebrew formula\n"+
-			"ERR ❌ Timed out while fetching Clover Homebrew formula timeout=10ms\n",
+		"INF ⏳ Fetching latest App Homebrew formula\n"+
+			"ERR ❌ Timed out while fetching App Homebrew formula timeout=10ms\n",
 		buf.String(),
 	)
 }

@@ -84,15 +84,30 @@ func EqualString(a, b string) bool {
 }
 
 // CompareString orders two version strings, tolerating a "v" prefix and missing
-// trailing segments (v1.2 == 1.2.0). Strings that do not parse fall back to a
-// natural-sort comparison of their prefix-stripped forms.
+// trailing segments (v1.2 == 1.2.0). Git-describe/dev builds rank after their
+// base release, since they represent commits ahead of that tag. Strings that do
+// not parse fall back to a natural-sort comparison of their prefix-stripped
+// forms.
 func CompareString(a, b string) int {
-	pa, errA := Parse(a)
-	pb, errB := Parse(b)
+	pa, aDev, errA := parseComparable(a)
+	pb, bDev, errB := parseComparable(b)
 	if errA != nil || errB != nil {
 		return xstrings.CompareNatural(RemovePrefix(a), RemovePrefix(b))
 	}
-	return Compare(pa, pb)
+	if c := Compare(pa, pb); c != 0 {
+		return c
+	}
+	switch {
+	case aDev && !bDev:
+		return cmpGt
+	case !aDev && bDev:
+		return cmpLt
+	case aDev && bDev:
+		if c := compareCommitCount(a, b); c != 0 {
+			return c
+		}
+	}
+	return cmpEq
 }
 
 // GreaterThan reports whether a > b.
@@ -100,3 +115,24 @@ func GreaterThan(a, b *goversion.Version) bool { return Compare(a, b) == cmpGt }
 
 // LessThan reports whether a < b.
 func LessThan(a, b *goversion.Version) bool { return Compare(a, b) == cmpLt }
+
+func parseComparable(v string) (*goversion.Version, bool, error) {
+	if IsDev(v) {
+		parsed, err := Parse(ExtractBase(v))
+		return parsed, true, err
+	}
+	parsed, err := Parse(v)
+	return parsed, false, err
+}
+
+func compareCommitCount(a, b string) int {
+	ac, bc := CommitCount(a), CommitCount(b)
+	switch {
+	case ac < bc:
+		return cmpLt
+	case ac > bc:
+		return cmpGt
+	default:
+		return cmpEq
+	}
+}
