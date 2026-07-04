@@ -106,6 +106,18 @@ func TestReadWriteStamp(t *testing.T) {
 	require.WithinDuration(t, time.Now(), when, time.Minute)
 }
 
+func TestStampsNestUnderLastUpdateDir(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	c := newChecker(cfg(), WithCacheDir(dir))
+	c.writeStamp("v3.1.4")
+	c.markNotified()
+
+	require.FileExists(t, filepath.Join(dir, "last-update", "check"))
+	require.FileExists(t, filepath.Join(dir, "last-update", "notify"))
+}
+
 func TestReadStampMissing(t *testing.T) {
 	t.Parallel()
 
@@ -467,9 +479,11 @@ func TestOldFormatCacheReadsCleanly(t *testing.T) {
 	t.Parallel()
 
 	dir := t.TempDir()
+	stampDir := filepath.Join(dir, stampDirName)
+	require.NoError(t, os.MkdirAll(stampDir, dirPerm))
 	require.NoError(
 		t,
-		os.WriteFile(filepath.Join(dir, refreshStampName), []byte("v2.0.0\n"), stampPerm),
+		os.WriteFile(filepath.Join(stampDir, refreshStampName), []byte("v2.0.0\n"), stampPerm),
 	)
 
 	c := newChecker(cfg(), WithCacheDir(dir))

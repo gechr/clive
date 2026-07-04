@@ -97,15 +97,19 @@ const (
 	// dirPerm is the mode of the per-tool cache directory.
 	dirPerm = 0o755
 
-	// refreshStampName is the cache file under the per-tool cache directory. Its
-	// content records the latest known ref and dismissed ref; its mtime is when
-	// that was last refreshed.
-	refreshStampName = "last-update-check"
+	// stampDirName is the subdirectory of the per-tool cache directory holding
+	// the stamp files.
+	stampDirName = "last-update"
+
+	// refreshStampName is the cache file under the stamp directory. Its content
+	// records the latest known ref and dismissed ref; its mtime is when that was
+	// last refreshed.
+	refreshStampName = "check"
 
 	// notifyStampName is the marker file whose mtime records when the auto-printed
 	// hint was last shown. It is kept separate from refreshStampName so recording a
 	// hint never disturbs the refresh mtime, and is empty - only its mtime matters.
-	notifyStampName = "last-update-notify"
+	notifyStampName = "notify"
 
 	// stampVersion is the current structured cache file format.
 	stampVersion = 1
@@ -298,10 +302,11 @@ func (c *checker) markNotified() {
 	if c.cacheDir == "" {
 		return
 	}
-	if err := xos.EnsureDir(c.cacheDir, dirPerm); err != nil {
+	path := c.notifyPath()
+	if err := xos.EnsureDir(filepath.Dir(path), dirPerm); err != nil {
 		return
 	}
-	_ = xos.AtomicWrite(c.notifyPath(), nil, stampPerm)
+	_ = xos.AtomicWrite(path, nil, stampPerm)
 }
 
 // scheduleRefresh starts a background refresh when the active track's cache is
@@ -446,7 +451,8 @@ func (c *checker) saveStamp(st stamp) error {
 	if c.cacheDir == "" {
 		return fmt.Errorf("notify: no cache directory")
 	}
-	if err := xos.EnsureDir(c.cacheDir, dirPerm); err != nil {
+	path := c.stampPath()
+	if err := xos.EnsureDir(filepath.Dir(path), dirPerm); err != nil {
 		return err
 	}
 	st.Version = stampVersion
@@ -455,7 +461,7 @@ func (c *checker) saveStamp(st stamp) error {
 		return err
 	}
 	data = append(data, '\n')
-	return xos.AtomicWrite(c.stampPath(), data, stampPerm)
+	return xos.AtomicWrite(path, data, stampPerm)
 }
 
 // stampPath returns the active track's refresh cache file.
@@ -468,13 +474,13 @@ func (c *checker) notifyPath() string {
 	return c.cacheFile(notifyStampName)
 }
 
-// cacheFile returns base namespaced for the active track, so each track keeps an
-// independent cache.
+// cacheFile returns base under the stamp directory, namespaced for the active
+// track so each track keeps an independent cache.
 func (c *checker) cacheFile(base string) string {
-	if c.channel == "" {
-		return filepath.Join(c.cacheDir, base)
+	if c.channel != "" {
+		base += "-" + url.PathEscape(c.channel)
 	}
-	return filepath.Join(c.cacheDir, base+"-"+url.PathEscape(c.channel))
+	return filepath.Join(c.cacheDir, stampDirName, base)
 }
 
 // refreshTracker tracks background refreshes without spawning wait goroutines.
