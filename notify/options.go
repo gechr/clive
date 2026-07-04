@@ -23,6 +23,26 @@ func WithCacheDir(dir string) Option {
 	return func(c *checker) { c.cacheDir = dir }
 }
 
+// WithStampDir overrides the subdirectory of the cache dir holding the stamp
+// files (default "last-update"). An empty dir places them in the cache dir
+// itself.
+func WithStampDir(dir string) Option {
+	return func(c *checker) { c.stampDir = dir }
+}
+
+// WithStampNames overrides the refresh and notify stamp file names (defaults
+// "check" and "notify"). An empty name keeps its default.
+func WithStampNames(refresh, notify string) Option {
+	return func(c *checker) {
+		if refresh != "" {
+			c.refreshStamp = refresh
+		}
+		if notify != "" {
+			c.notifyStamp = notify
+		}
+	}
+}
+
 // WithChannel selects a release track and namespaces the cache for that track.
 // Switching tracks never compares the new track against another track's cached
 // ref; the new track starts stale and refreshes independently.

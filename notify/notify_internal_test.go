@@ -118,6 +118,33 @@ func TestStampsNestUnderLastUpdateDir(t *testing.T) {
 	require.FileExists(t, filepath.Join(dir, "last-update", "notify"))
 }
 
+func TestWithStampDirAndNames(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	c := newChecker(
+		cfg(),
+		WithCacheDir(dir),
+		WithStampDir("stamps"),
+		WithStampNames("refresh", "hinted"),
+	)
+	c.writeStamp("v3.1.4")
+	c.markNotified()
+
+	require.FileExists(t, filepath.Join(dir, "stamps", "refresh"))
+	require.FileExists(t, filepath.Join(dir, "stamps", "hinted"))
+}
+
+func TestWithStampDirEmptyUsesCacheDir(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	c := newChecker(cfg(), WithCacheDir(dir), WithStampDir(""))
+	c.writeStamp("v3.1.4")
+
+	require.FileExists(t, filepath.Join(dir, refreshStampName))
+}
+
 func TestReadStampMissing(t *testing.T) {
 	t.Parallel()
 

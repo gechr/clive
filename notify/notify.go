@@ -218,6 +218,9 @@ type checker struct {
 	channel         string
 	client          *http.Client
 	cacheDir        string
+	stampDir        string
+	refreshStamp    string
+	notifyStamp     string
 	color           color.Color
 	latest          LatestFunc
 	comparator      func(current, latest string) bool
@@ -239,12 +242,15 @@ type stamp struct {
 // newChecker builds a checker with real-run defaults, then applies opts.
 func newChecker(tool updater.Tool, opts ...Option) *checker {
 	c := &checker{
-		tool:       tool,
-		current:    clive.Current(),
-		client:     &http.Client{Timeout: lookupTimeout},
-		cacheDir:   defaultCacheDir(tool.BinaryName()),
-		color:      lipgloss.Color(updateColor),
-		comparator: newer,
+		tool:         tool,
+		current:      clive.Current(),
+		client:       &http.Client{Timeout: lookupTimeout},
+		cacheDir:     defaultCacheDir(tool.BinaryName()),
+		stampDir:     stampDirName,
+		refreshStamp: refreshStampName,
+		notifyStamp:  notifyStampName,
+		color:        lipgloss.Color(updateColor),
+		comparator:   newer,
 		display: func(s string) string {
 			return s
 		},
@@ -466,12 +472,12 @@ func (c *checker) saveStamp(st stamp) error {
 
 // stampPath returns the active track's refresh cache file.
 func (c *checker) stampPath() string {
-	return c.cacheFile(refreshStampName)
+	return c.cacheFile(c.refreshStamp)
 }
 
 // notifyPath returns the active track's hint marker file.
 func (c *checker) notifyPath() string {
-	return c.cacheFile(notifyStampName)
+	return c.cacheFile(c.notifyStamp)
 }
 
 // cacheFile returns base under the stamp directory, namespaced for the active
@@ -480,7 +486,7 @@ func (c *checker) cacheFile(base string) string {
 	if c.channel != "" {
 		base += "-" + url.PathEscape(c.channel)
 	}
-	return filepath.Join(c.cacheDir, stampDirName, base)
+	return filepath.Join(c.cacheDir, c.stampDir, base)
 }
 
 // refreshTracker tracks background refreshes without spawning wait goroutines.
