@@ -48,8 +48,18 @@ const (
 	Dev
 )
 
-// Config satisfies the metadata interface notify consumes.
-var _ updater.Tool = Config{}
+// Config satisfies the metadata interface notify consumes and the
+// behavioural [updater.Updater] interface.
+var _ updater.Updater = Config{}
+
+// Check implements [updater.Updater].
+func (c Config) Check(ctx context.Context) error { return Check(ctx, c) }
+
+// Update implements [updater.Updater]; dev selects the dev branch and stable
+// is ignored ([Latest] already is the latest stable release).
+func (c Config) Update(ctx context.Context, dev, _ bool) error {
+	return Update(ctx, c, ChannelFor(dev))
+}
 
 // ChannelFor maps a --dev flag to a Channel; unset is Latest. Unlike Homebrew,
 // `go install` has no separate "upgrade" verb - @latest always resolves to the

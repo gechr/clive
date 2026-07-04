@@ -6,10 +6,10 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/gechr/clive"
+	xshell "github.com/gechr/x/shell"
 	xstrings "github.com/gechr/x/strings"
 	"github.com/stretchr/testify/require"
 )
@@ -27,9 +27,9 @@ func TestUpgradeUsesFormulaRef(t *testing.T) {
 
 	brew := filepath.Join(dir, "brew")
 	script := "#!/bin/sh\n" +
-		"printf '%s\\n' \"$*\" >> " + shellQuote(log) + "\n" +
+		"printf '%s\\n' \"$*\" >> " + xshell.Quote(log) + "\n" +
 		"case \"$1\" in\n" +
-		"  --prefix) echo " + shellQuote(prefix) + " ;;\n" +
+		"  --prefix) echo " + xshell.Quote(prefix) + " ;;\n" +
 		"  list) exit 0 ;;\n" +
 		"  upgrade) exit 0 ;;\n" +
 		"esac\n"
@@ -70,9 +70,9 @@ func TestInstallSkipsExistingTap(t *testing.T) {
 
 	brew := filepath.Join(dir, "brew")
 	script := "#!/bin/sh\n" +
-		"printf '%s\\n' \"$*\" >> " + shellQuote(log) + "\n" +
+		"printf '%s\\n' \"$*\" >> " + xshell.Quote(log) + "\n" +
 		"case \"$1\" in\n" +
-		"  --prefix) echo " + shellQuote(prefix) + " ;;\n" +
+		"  --prefix) echo " + xshell.Quote(prefix) + " ;;\n" +
 		"  tap) [ \"$#\" -eq 1 ] && echo example/tap ;;\n" +
 		"  install) exit 0 ;;\n" +
 		"esac\n"
@@ -114,7 +114,7 @@ func TestInstalledVersionUsesDefaultResolver(t *testing.T) {
 		t,
 		os.WriteFile(
 			binary,
-			[]byte("#!/bin/sh\necho \"$*\" >> "+shellQuote(log)+"\necho v0.2.3\n"),
+			[]byte("#!/bin/sh\necho \"$*\" >> "+xshell.Quote(log)+"\necho v0.2.3\n"),
 			0o755,
 		),
 	)
@@ -122,7 +122,7 @@ func TestInstalledVersionUsesDefaultResolver(t *testing.T) {
 	brew := filepath.Join(dir, "brew")
 	script := "#!/bin/sh\n" +
 		"case \"$1\" in\n" +
-		"  --prefix) echo " + shellQuote(prefix) + " ;;\n" +
+		"  --prefix) echo " + xshell.Quote(prefix) + " ;;\n" +
 		"esac\n"
 	require.NoError(t, os.WriteFile(brew, []byte(script), 0o755))
 
@@ -146,7 +146,9 @@ func TestInstalledVersionUsesConfiguredResolver(t *testing.T) {
 	require.NoError(t, os.WriteFile(
 		binary,
 		[]byte(
-			"#!/bin/sh\necho \"$*\" >> "+shellQuote(log)+"\nprintf '{\"version\":\"1.2.3\"}\\n'\n",
+			"#!/bin/sh\necho \"$*\" >> "+xshell.Quote(
+				log,
+			)+"\nprintf '{\"version\":\"1.2.3\"}\\n'\n",
 		),
 		0o755,
 	))
@@ -154,7 +156,7 @@ func TestInstalledVersionUsesConfiguredResolver(t *testing.T) {
 	brew := filepath.Join(dir, "brew")
 	script := "#!/bin/sh\n" +
 		"case \"$1\" in\n" +
-		"  --prefix) echo " + shellQuote(prefix) + " ;;\n" +
+		"  --prefix) echo " + xshell.Quote(prefix) + " ;;\n" +
 		"esac\n"
 	require.NoError(t, os.WriteFile(brew, []byte(script), 0o755))
 
@@ -187,8 +189,4 @@ func TestInstalledVersionUsesConfiguredResolver(t *testing.T) {
 
 func commandLog(out []byte) []string {
 	return xstrings.SplitLines(string(out))
-}
-
-func shellQuote(s string) string {
-	return "'" + strings.ReplaceAll(s, "'", "'\\''") + "'"
 }

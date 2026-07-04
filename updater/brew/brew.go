@@ -74,8 +74,17 @@ const (
 	ConflictIgnore
 )
 
-// Config satisfies the metadata interface notify consumes.
-var _ updater.Tool = Config{}
+// Config satisfies the metadata interface notify consumes and the
+// behavioural [updater.Updater] interface.
+var _ updater.Updater = Config{}
+
+// Check implements [updater.Updater].
+func (c Config) Check(ctx context.Context) error { return Check(ctx, c) }
+
+// Update implements [updater.Updater], mapping dev/stable onto [ChannelFor].
+func (c Config) Update(ctx context.Context, dev, stable bool) error {
+	return Update(ctx, c, ChannelFor(dev, stable))
+}
 
 // ChannelFor maps a --dev/--stable flag pair to a Channel; neither set is
 // Upgrade.

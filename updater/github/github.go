@@ -48,8 +48,18 @@ const (
 	binPerm = 0o755
 )
 
-// Config satisfies the metadata interface notify consumes.
-var _ updater.Tool = Config{}
+// Config satisfies the metadata interface notify consumes and the
+// behavioural [updater.Updater] interface.
+var _ updater.Updater = Config{}
+
+// Check implements [updater.Updater].
+func (c Config) Check(ctx context.Context) error { return Check(ctx, c) }
+
+// Update implements [updater.Updater]; dev selects the newest prerelease and
+// stable is ignored ([Latest] already is the latest stable release).
+func (c Config) Update(ctx context.Context, dev, _ bool) error {
+	return Update(ctx, c, ChannelFor(dev))
+}
 
 // currentVersion reports the running binary's version. It is a package var so
 // tests can pin a known value; production always uses [clive.Current].

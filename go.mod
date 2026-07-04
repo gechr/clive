@@ -1,13 +1,13 @@
 module github.com/gechr/clive
 
-go 1.26.2
+go 1.26.4
 
 require (
 	charm.land/lipgloss/v2 v2.0.5
 	github.com/cli/go-gh/v2 v2.13.0
 	github.com/creativeprojects/go-selfupdate v1.5.2
-	github.com/gechr/clog v0.11.14
-	github.com/gechr/x v0.2.4
+	github.com/gechr/clog v0.11.15
+	github.com/gechr/x v0.2.8
 	github.com/hashicorp/go-version v1.9.0
 	github.com/stretchr/testify v1.11.1
 )
@@ -80,7 +80,7 @@ require (
 	github.com/fatih/color v1.19.0 // indirect
 	github.com/fatih/structtag v1.2.0 // indirect
 	github.com/firefart/nonamedreturns v1.0.6 // indirect
-	github.com/fsnotify/fsnotify v1.5.4 // indirect
+	github.com/fsnotify/fsnotify v1.6.0 // indirect
 	github.com/fzipp/gocyclo v0.6.0 // indirect
 	github.com/ghostiam/protogetter v0.3.20 // indirect
 	github.com/go-critic/go-critic v0.14.3 // indirect
@@ -235,7 +235,7 @@ require (
 	golang.org/x/sync v0.21.0 // indirect
 	golang.org/x/sys v0.46.0 // indirect
 	golang.org/x/term v0.44.0 // indirect
-	golang.org/x/text v0.36.0 // indirect
+	golang.org/x/text v0.38.0 // indirect
 	golang.org/x/time v0.14.0 // indirect
 	golang.org/x/tools v0.47.0 // indirect
 	google.golang.org/protobuf v1.36.11 // indirect
