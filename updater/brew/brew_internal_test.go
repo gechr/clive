@@ -45,13 +45,15 @@ func TestUpgradeUsesFormulaRef(t *testing.T) {
 			WithOnConflict(ConflictIgnore),
 		),
 		current: "1.0.0",
+		// Update probes presence concurrently with the fetch; upgrade
+		// consumes the result.
+		present: true,
 	}
 	require.NoError(t, r.upgrade(context.Background()))
 
 	out, err := os.ReadFile(log)
 	require.NoError(t, err)
 	require.Equal(t, []string{
-		"list example/tap/app",
 		"upgrade example/tap/app",
 		"--prefix",
 	}, commandLog(out))

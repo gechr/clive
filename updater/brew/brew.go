@@ -169,16 +169,31 @@ func Update(ctx context.Context, cfg Config, channel Channel) error {
 	}
 	r := &runner{cfg: cfg, brew: brew, current: clive.Current()}
 
+	// Probe the current install concurrently with the metadata fetch. The
+	// probes are read-only (brew --prefix, brew list, the binary's own
+	// version) but each costs a few hundred milliseconds; overlapping them
+	// with the fetch removes the blank pause between the fetch spinner
+	// completing and the next phase's first frame.
+	//
+	// Recording the Homebrew install's own version before we touch it lets
+	// the report compare the brew binary against itself. clive.Current() is
+	// the *running* binary, which - when a non-Homebrew copy shadows the brew
+	// install on PATH - is a different install entirely, and comparing its
+	// version against the freshly-installed brew binary yields a nonsensical
+	// "downgrade". Empty when brew has nothing installed yet (a fresh
+	// install), which reports no change.
+	probed := make(chan struct{})
+	go func() {
+		defer close(probed)
+		r.before = r.installedVersion(ctx)
+		r.present = r.installed(ctx)
+	}()
+
 	if err := r.fetch(ctx); err != nil {
 		return err
 	}
-	// Record the Homebrew install's own version before we touch it, so the report
-	// compares the brew binary against itself. clive.Current() is the *running*
-	// binary, which - when a non-Homebrew copy shadows the brew install on PATH -
-	// is a different install entirely, and comparing its version against the
-	// freshly-installed brew binary yields a nonsensical "downgrade". Empty when
-	// brew has nothing installed yet (a fresh install), which reports no change.
-	r.before = r.installedVersion(ctx)
+	<-probed
+
 	switch channel {
 	case Stable:
 		return r.reinstall(ctx, false)
@@ -210,15 +225,17 @@ func (r *runner) fetch(ctx context.Context) error {
 // runner holds the brew invocation state for one update.
 type runner struct {
 	before  string
+	binDir  string
 	brew    string
 	cfg     Config
 	current string
+	present bool
 }
 
 // upgrade upgrades an installed formula, tapping and installing it first when it
 // is not yet present. A dev build re-fetches HEAD so it stays on source.
 func (r *runner) upgrade(ctx context.Context) error {
-	if !r.installed(ctx) {
+	if !r.present {
 		return r.install(ctx, headBuild.MatchString(r.current))
 	}
 	args := []string{"upgrade"}
@@ -342,13 +359,18 @@ func (r *runner) installedVersion(ctx context.Context) string {
 }
 
 // brewBinDir returns Homebrew's bin directory (<prefix>/bin), or "" when the
-// prefix cannot be determined.
+// prefix cannot be determined. The prefix never changes within one update, so
+// the first successful lookup is memoized to avoid repeated brew invocations.
 func (r *runner) brewBinDir(ctx context.Context) string {
+	if r.binDir != "" {
+		return r.binDir
+	}
 	out, err := r.brewCmd(ctx, "--prefix").Output()
 	if err != nil {
 		return ""
 	}
-	return strings.TrimSpace(string(out)) + "/bin"
+	r.binDir = strings.TrimSpace(string(out)) + "/bin"
+	return r.binDir
 }
 
 // cleanup handles copies of the binary found on PATH outside Homebrew, so the
