@@ -131,7 +131,38 @@ func TestInstalledVersionUsesDefaultResolver(t *testing.T) {
 
 	out, err := os.ReadFile(log)
 	require.NoError(t, err)
-	require.Equal(t, []string{"version"}, commandLog(out))
+	require.Equal(t, []string{"--version"}, commandLog(out))
+}
+
+func TestInstalledVersionFallsBackToVersionSubcommand(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	log := filepath.Join(dir, "app.log")
+	prefix := filepath.Join(dir, "prefix")
+	require.NoError(t, os.MkdirAll(filepath.Join(prefix, "bin"), 0o755))
+
+	// A CLI without a --version flag: only the `version` subcommand answers.
+	binary := filepath.Join(prefix, "bin", "app")
+	script := "#!/bin/sh\n" +
+		"echo \"$*\" >> " + xshell.Quote(log) + "\n" +
+		"[ \"$1\" = version ] || exit 1\n" +
+		"echo v0.4.9\n"
+	require.NoError(t, os.WriteFile(binary, []byte(script), 0o755))
+
+	brew := filepath.Join(dir, "brew")
+	brewScript := "#!/bin/sh\n" +
+		"case \"$1\" in\n" +
+		"  --prefix) echo " + xshell.Quote(prefix) + " ;;\n" +
+		"esac\n"
+	require.NoError(t, os.WriteFile(brew, []byte(brewScript), 0o755))
+
+	r := &runner{brew: brew, cfg: New(clive.Info{}, WithFormula("app"))}
+	require.Equal(t, "v0.4.9", r.installedVersion(context.Background()))
+
+	out, err := os.ReadFile(log)
+	require.NoError(t, err)
+	require.Equal(t, []string{"--version", "version"}, commandLog(out))
 }
 
 func TestInstalledVersionUsesConfiguredResolver(t *testing.T) {

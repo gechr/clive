@@ -495,8 +495,14 @@ func (c Config) resolveVersion(ctx context.Context, bin string) (string, error) 
 	return defaultResolveVersion(ctx, bin)
 }
 
+// defaultResolveVersion asks the binary for its own version: first via the
+// near-universal `--version` flag, then via the `version` subcommand for
+// tools that only expose the latter.
 func defaultResolveVersion(ctx context.Context, bin string) (string, error) {
-	out, err := exec.CommandContext(ctx, bin, "version").Output()
+	out, err := exec.CommandContext(ctx, bin, "--version").Output()
+	if err != nil {
+		out, err = exec.CommandContext(ctx, bin, "version").Output()
+	}
 	if err != nil {
 		return "", err
 	}
