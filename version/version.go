@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 
+	xstrings "github.com/gechr/x/strings"
 	goversion "github.com/hashicorp/go-version"
 )
 
@@ -77,7 +78,7 @@ func IsDev(v string) bool {
 	}
 
 	commitCount := prefix[lastDash+1:]
-	return isAllDigits(commitCount)
+	return xstrings.IsDigits(commitCount)
 }
 
 // CommitCount returns the number of commits since the last tag embedded in a
@@ -94,7 +95,7 @@ func CommitCount(v string) int {
 		return 0
 	}
 	countStr := prefix[lastDash+1:]
-	if !isAllDigits(countStr) {
+	if !xstrings.IsDigits(countStr) {
 		return 0
 	}
 	n, _ := strconv.Atoi(countStr)
@@ -143,7 +144,7 @@ func stripCountedGitHash(v string) (string, bool) {
 	if lastDash <= 0 {
 		return "", false
 	}
-	if !isAllDigits(prefix[lastDash+1:]) {
+	if !xstrings.IsDigits(prefix[lastDash+1:]) {
 		return "", false
 	}
 	return prefix[:lastDash], true
@@ -156,16 +157,4 @@ func stripGitDescribe(v string) string {
 		return base
 	}
 	return v
-}
-
-func isAllDigits(s string) bool {
-	if s == "" {
-		return false
-	}
-	for _, c := range s {
-		if c < '0' || c > '9' {
-			return false
-		}
-	}
-	return true
 }
