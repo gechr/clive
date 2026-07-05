@@ -20,6 +20,7 @@ func Report(name string, info clive.Info, old, current string) {
 		from, to := updateLinks(info, old, current)
 		clog.Info().
 			Symbol(symbol).
+			MessageStyle(symbols.messageStyle()).
 			Str("from", from).
 			Str("to", to).
 			Msgf("%s %s", verb, name)
@@ -38,6 +39,7 @@ func CompleteReport(res *fx.WaitResult, name string, info clive.Info, old, curre
 		from, to := updateLinks(info, old, current)
 		return res.
 			Symbol(symbol).
+			MessageStyle(symbols.messageStyle()).
 			Str("from", from).
 			Str("to", to).
 			Msgf("%s %s", verb, name)
@@ -45,12 +47,10 @@ func CompleteReport(res *fx.WaitResult, name string, info clive.Info, old, curre
 	return CompleteUpToDate(res, name, info, cmp.Or(current, old))
 }
 
-const upToDateSymbol = "🚀"
-
 // UpToDate reports that no update was applied, including the version field only
 // when a version is known (a go-run build has none to show).
 func UpToDate(name string, info clive.Info, ver string) {
-	e := clog.Info().Symbol(upToDateSymbol)
+	e := clog.Info().Symbol(symbols.styledUpToDate()).MessageStyle(symbols.messageStyle())
 	if ver != "" {
 		e = e.Str("version", info.VersionLink(ver))
 	}
@@ -59,7 +59,7 @@ func UpToDate(name string, info clive.Info, ver string) {
 
 // CompleteUpToDate emits the up-to-date notice as a spinner completion line.
 func CompleteUpToDate(res *fx.WaitResult, name string, info clive.Info, ver string) error {
-	res = res.Symbol(upToDateSymbol)
+	res = res.Symbol(symbols.styledUpToDate()).MessageStyle(symbols.messageStyle())
 	if ver != "" {
 		res = res.Str("version", info.VersionLink(ver))
 	}
@@ -78,9 +78,9 @@ func outcome(old, current string) (string, string, bool) {
 	}
 	switch c := version.CompareString(current, old); {
 	case c < 0:
-		return "⬇️", "Downgraded", true
+		return symbols.styledDowngraded(), "Downgraded", true
 	case c > 0:
-		return "⬆️", "Upgraded", true
+		return symbols.styledUpgraded(), "Upgraded", true
 	default:
 		return "", "", false
 	}

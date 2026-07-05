@@ -11,13 +11,9 @@ import (
 	"github.com/gechr/clog/fx"
 )
 
-const (
-	// doneSymbol marks a completed spinner step, replacing the default info glyph.
-	doneSymbol = "✅"
-	// elapsedMinimum hides a spinner's elapsed field unless the step took at least
-	// this long, so quick steps stay uncluttered.
-	elapsedMinimum = 3 * time.Second
-)
+// elapsedMinimum hides a spinner's elapsed field unless the step took at least
+// this long, so quick steps stay uncluttered.
+const elapsedMinimum = 3 * time.Second
 
 // ErrReported marks a failure that has already been shown to the user - a spinner
 // step finalized at error level (e.g. by [SpinTimeout]) - so its message is on
@@ -45,7 +41,7 @@ func Spin(ctx context.Context, msg string, fn func(context.Context) error, field
 	if err := res.Silent(); err != nil {
 		return err
 	}
-	return res.Symbol(doneSymbol).Msg(msg)
+	return res.Symbol(symbols.styledDone()).MessageStyle(symbols.messageStyle()).Msg(msg)
 }
 
 // SpinTimeout runs fn under a spinner like [Spin], but bounds it with timeout.
@@ -88,7 +84,7 @@ func SpinTimeout(
 		}
 		return err
 	}
-	return res.Symbol(doneSymbol).Msg(doneMsg)
+	return res.Symbol(symbols.styledDone()).MessageStyle(symbols.messageStyle()).Msg(doneMsg)
 }
 
 // SpinResult runs fn under a clog spinner labelled msg and returns the
@@ -105,7 +101,7 @@ func SpinResult(
 		clog.Default.SetFieldFormats(f)
 	})
 
-	b := clog.Spinner(msg)
+	b := clog.Spinner(msg).MessageStyle(symbols.messageStyle())
 	for _, f := range fields {
 		b = b.Str(f.Key, f.Val)
 	}
@@ -126,7 +122,7 @@ func TransientSpinResult(
 		clog.Default.SetFieldFormats(f)
 	})
 
-	b := clog.Spinner(msg).NonTTYSilent(true)
+	b := clog.Spinner(msg).NonTTYSilent(true).MessageStyle(symbols.messageStyle())
 	for _, f := range fields {
 		b = b.Str(f.Key, f.Val)
 	}

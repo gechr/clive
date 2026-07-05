@@ -430,7 +430,8 @@ func (r *runner) resolveConflict(path string, shadows bool) {
 	switch err := xos.Trash(path); {
 	case err == nil:
 		clog.Info().
-			Symbol("🗑️").
+			Symbol(updater.TrashSymbol()).
+			MessageStyle(updater.MessageStyle()).
 			Path("path", path).
 			Msgf("Trashed stray %s installation", r.cfg.DisplayName())
 	case errors.Is(err, errors.ErrUnsupported):
@@ -453,7 +454,8 @@ func (r *runner) removeConflict(path string) {
 			Msgf("Failed to remove stray %s installation", r.cfg.DisplayName())
 	} else {
 		clog.Info().
-			Symbol("🗑️").
+			Symbol(updater.TrashSymbol()).
+			MessageStyle(updater.MessageStyle()).
 			Path("path", path).
 			Msgf("Removed stray %s installation", r.cfg.DisplayName())
 	}
