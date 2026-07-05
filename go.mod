@@ -7,7 +7,7 @@ require (
 	github.com/cli/go-gh/v2 v2.13.0
 	github.com/creativeprojects/go-selfupdate v1.5.2
 	github.com/gechr/clog v0.11.15
-	github.com/gechr/x v0.2.8
+	github.com/gechr/x v0.2.9
 	github.com/hashicorp/go-version v1.9.0
 	github.com/stretchr/testify v1.11.1
 )
