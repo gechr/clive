@@ -4,26 +4,19 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"sync"
 	"time"
 
 	"github.com/gechr/clog"
+	"github.com/gechr/clog/field/duration"
+	"github.com/gechr/clog/field/elapsed"
 	"github.com/gechr/clog/fx"
 )
-
-// elapsedMinimum hides a spinner's elapsed field unless the step took at least
-// this long, so quick steps stay uncluttered.
-const elapsedMinimum = 3 * time.Second
 
 // ErrReported marks a failure that has already been shown to the user - a spinner
 // step finalized at error level (e.g. by [SpinTimeout]) - so its message is on
 // screen. A consumer should treat it as a plain non-zero exit and not log a
 // second, generic failure line on top of the one already printed.
 var ErrReported = errors.New("update failed")
-
-// elapsedOnce applies elapsedMinimum to the default logger the first time a
-// spinner runs, so a quick step does not print a noisy "elapsed=0s".
-var elapsedOnce sync.Once
 
 // Field is an optional structured key/value attached to a [Spin] message, shown
 // on both the spinner and its completion line (e.g. version="1.2.3").
@@ -58,7 +51,7 @@ func SpinProgress(
 	if err := res.Silent(); err != nil {
 		return err
 	}
-	return res.Symbol(symbols.styledDone()).MessageStyle(symbols.messageStyle()).Msg(msg)
+	return res.Symbol(cfg.styledDone()).MessageStyle(cfg.messageStyle()).Msg(msg)
 }
 
 // SpinTimeout runs fn under a spinner like [Spin], but bounds it with timeout.
@@ -112,14 +105,14 @@ func SpinTimeoutProgress(
 			// Replace the spinner's elapsed field with the timeout bound that was
 			// hit - "timeout=2m" reads clearer than "elapsed=2m" on a timeout line.
 			res.Fields = nil
-			res.Duration("timeout", timeout)
+			res.Duration("timeout", timeout, duration.WithGradientMax(cfg.gradientMax))
 			// Wrap the timeout message with ErrReported so a consumer can detect
 			// the already-reported failure yet still unwrap the detail.
 			return fmt.Errorf("%w: %w", ErrReported, res.Send())
 		}
 		return err
 	}
-	return res.Symbol(symbols.styledDone()).MessageStyle(symbols.messageStyle()).Msg(doneMsg)
+	return res.Symbol(cfg.styledDone()).MessageStyle(cfg.messageStyle()).Msg(doneMsg)
 }
 
 // SpinResult runs fn under a clog spinner labelled msg and returns the
@@ -175,15 +168,12 @@ func spinResultProgress(
 	fn func(context.Context, *fx.Update) error,
 	fields ...Field,
 ) *fx.WaitResult {
-	elapsedOnce.Do(func() {
-		f := clog.Default.FieldFormats()
-		f.ElapsedMinimum = elapsedMinimum
-		clog.Default.SetFieldFormats(f)
-	})
-
-	b := clog.Spinner(msg).NonTTYSilent(transient).MessageStyle(symbols.messageStyle())
+	b := clog.Spinner(msg).NonTTYSilent(transient).MessageStyle(cfg.messageStyle())
 	for _, f := range fields {
 		b = b.Str(f.Key, f.Val)
 	}
-	return b.Elapsed("elapsed").Progress(ctx, fn)
+	return b.Elapsed("elapsed",
+		elapsed.WithGradientMax(cfg.gradientMax),
+		elapsed.WithMinimum(cfg.elapsedMinimum),
+	).Progress(ctx, fn)
 }
