@@ -24,11 +24,13 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gechr/clive"
 	"github.com/gechr/clive/updater"
 	"github.com/gechr/clog"
+	"github.com/gechr/clog/fx"
 	xos "github.com/gechr/x/os"
 	xstrings "github.com/gechr/x/strings"
 )
@@ -39,8 +41,13 @@ const brewTimeout = 5 * time.Minute
 // defaultFetchTimeout bounds the initial `brew update` formula refresh, which is
 // normally quick. A much longer hang means a stuck network fetch, so we cut it
 // off well before the overall brewTimeout rather than blocking the whole update.
-// A consumer can override it per-update via [WithFetchTimeout].
+// It also bounds how long fetch waits for a concurrent brew process to release
+// the update lock. A consumer can override it per-update via [WithFetchTimeout].
 const defaultFetchTimeout = 2 * time.Minute
+
+// brewLockPoll is how often [runner.waitLock] re-checks whether a concurrent
+// brew process has released a `brew update` or per-formula lock.
+const brewLockPoll = time.Second
 
 // headBuild matches a dev/HEAD version like "0.1.0-gabc1234-dev", so an upgrade
 // of a source build re-fetches HEAD rather than dropping to a stable release.
@@ -209,26 +216,168 @@ func Update(ctx context.Context, cfg Config, channel Channel) error {
 // normally quick, so it runs under fetchTimeout - far tighter than the overall
 // brewTimeout that must also cover a --HEAD source compile - and on timeout
 // supplants its spinner with a clear "Timed out ..." line rather than hanging
-// or surfacing brew's opaque "signal: killed".
+// or surfacing brew's opaque "signal: killed". When another brew process already
+// holds the update lock, fetch waits it out (see [runner.update]) rather than
+// failing, so the fetchTimeout also bounds that wait.
 func (r *runner) fetch(ctx context.Context) error {
 	name := r.cfg.DisplayName()
-	return updater.SpinTimeout(
+	return updater.SpinTimeoutProgress(
 		ctx,
 		fmt.Sprintf("Fetching latest %s Homebrew formula", name),
 		fmt.Sprintf("Fetched latest %s Homebrew formula", name),
 		fmt.Sprintf("Timed out while fetching %s Homebrew formula", name),
 		cmp.Or(r.cfg.fetchTimeout, defaultFetchTimeout),
-		func(ctx context.Context) error { return r.run(ctx, "update", "--quiet") },
+		func(ctx context.Context, u *fx.Update) error {
+			return r.update(ctx, func() {
+				u.Msgf("Waiting for another Homebrew process to finish").Send()
+			})
+		},
 	)
+}
+
+// update runs `brew update`, tolerating a concurrent brew process that already
+// holds the update lock. Homebrew serialises `brew update` with a non-blocking
+// lock and exits immediately - "Another brew update process is already running"
+// - when it is held. Because one `brew update` refreshes *every* formula, the
+// running process is already doing our work, so rather than fail (or wastefully
+// re-run it) we wait for that process to release the lock, leaving the metadata
+// freshly updated for the upgrade that follows. onWait, invoked once when the
+// wait begins, lets the caller note the pause (e.g. relabel a spinner).
+func (r *runner) update(ctx context.Context, onWait func()) error {
+	err := r.run(ctx, "update", "--quiet")
+	if err == nil || !isBrewLocked(err) {
+		return err
+	}
+	if onWait != nil {
+		onWait()
+	}
+	return r.waitLock(ctx, r.updateLockPath(ctx))
+}
+
+// runAwaitingLock runs a mutating brew command that must actually execute (an
+// upgrade or install, unlike the skippable update), waiting out a concurrent
+// brew process that holds the formula's lock. Homebrew locks each formula with a
+// non-blocking flock and fails fast - "A `brew ...` process has already locked
+// ..." - rather than running two upgrades of one formula at once; so we hold off
+// while the lock is taken and run only once it frees, by which point the other
+// process has finished and our command is a clean no-op. onWait(true) is invoked
+// when the wait begins and onWait(false) when it ends, letting the caller flip a
+// spinner between "Waiting ..." and its active label so it reads "Waiting" only
+// while actually blocked. The wait is bounded by ctx (the overall brewTimeout).
+func (r *runner) runAwaitingLock(
+	ctx context.Context,
+	onWait func(waiting bool),
+	args ...string,
+) error {
+	for {
+		// Pre-check the formula lock so the spinner shows "Waiting ..." before we
+		// invoke brew, rather than flashing the active label through brew's
+		// fail-fast on a held lock.
+		if path := r.formulaLockPath(ctx); path != "" && lockHeld(path) {
+			if onWait != nil {
+				onWait(true)
+			}
+			if err := r.waitLock(ctx, path); err != nil {
+				return err
+			}
+			if onWait != nil {
+				onWait(false)
+			}
+		}
+		err := r.run(ctx, args...)
+		if err == nil || !isBrewLocked(err) {
+			return err
+		}
+		// The lock was taken between our pre-check and the run (or is a lock we
+		// could not pre-check): throttle, then loop to wait it out afresh.
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(brewLockPoll):
+		}
+	}
+}
+
+// waitRelabel returns a runAwaitingLock onWait callback that flips spinner u
+// between a "Waiting ..." label while blocked and active once it proceeds, so the
+// spinner reads "Waiting" only while it is genuinely held off.
+func waitRelabel(u *fx.Update, active string) func(bool) {
+	return func(waiting bool) {
+		if waiting {
+			u.Msg("Waiting for another Homebrew process to finish").Send()
+			return
+		}
+		u.Msg(active).Send()
+	}
+}
+
+// waitLock blocks until the Homebrew lock file at path is free or ctx is done,
+// polling a non-blocking flock exactly as brew itself does. An empty path (the
+// lock could not be located) returns immediately: a probe we cannot perform must
+// not stall the update indefinitely.
+func (r *runner) waitLock(ctx context.Context, path string) error {
+	if path == "" {
+		return nil
+	}
+	for lockHeld(path) {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(brewLockPoll):
+		}
+	}
+	return nil
+}
+
+// updateLockPath is the file Homebrew flocks for the duration of a `brew update`
+// (<prefix>/var/homebrew/locks/update; see utils/lock.sh), or "" when the prefix
+// cannot be resolved.
+func (r *runner) updateLockPath(ctx context.Context) string {
+	return r.lockPath(ctx, "update")
+}
+
+// formulaLockPath is the per-formula file Homebrew flocks for the duration of an
+// upgrade or install (<prefix>/var/homebrew/locks/<formula>.formula.lock; keyed
+// by the unqualified formula/rack name), or "" when it cannot be resolved.
+func (r *runner) formulaLockPath(ctx context.Context) string {
+	formula := r.cfg.resolveFormula()
+	if formula == "" {
+		return ""
+	}
+	return r.lockPath(ctx, formula+".formula.lock")
+}
+
+// lockPath resolves a file within Homebrew's locks directory, or "" when the
+// prefix cannot be determined.
+func (r *runner) lockPath(ctx context.Context, name string) string {
+	prefix := r.brewPrefix(ctx)
+	if prefix == "" {
+		return ""
+	}
+	return prefix + "/var/homebrew/locks/" + name
+}
+
+// isBrewLocked reports whether err is Homebrew refusing to run because another
+// brew process already holds the relevant lock: the global update lock ("already
+// running"), or a per-formula upgrade/install lock ("has already locked ...").
+func isBrewLocked(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "already running") || strings.Contains(msg, "already locked")
 }
 
 // runner holds the brew invocation state for one update.
 type runner struct {
+	// mu guards prefix, memoized lazily and read from both the fetch path (to
+	// locate the update lock) and the concurrent install probe.
+	mu      sync.Mutex
 	before  string
-	binDir  string
 	brew    string
 	cfg     Config
 	current string
+	prefix  string
 	present bool
 }
 
@@ -243,9 +392,10 @@ func (r *runner) upgrade(ctx context.Context) error {
 		args = append(args, "--fetch-HEAD")
 	}
 	args = append(args, r.cfg.formulaRef())
-	res := updater.TransientSpinResult(ctx, fmt.Sprintf("Upgrading %s", r.cfg.DisplayName()),
-		func(ctx context.Context) error {
-			return r.run(ctx, args...)
+	msg := fmt.Sprintf("Upgrading %s", r.cfg.DisplayName())
+	res := updater.TransientSpinResultProgress(ctx, msg,
+		func(ctx context.Context, u *fx.Update) error {
+			return r.runAwaitingLock(ctx, waitRelabel(u, msg), args...)
 		})
 	if err := res.Silent(); err != nil {
 		return err
@@ -359,18 +509,29 @@ func (r *runner) installedVersion(ctx context.Context) string {
 }
 
 // brewBinDir returns Homebrew's bin directory (<prefix>/bin), or "" when the
-// prefix cannot be determined. The prefix never changes within one update, so
-// the first successful lookup is memoized to avoid repeated brew invocations.
+// prefix cannot be determined.
 func (r *runner) brewBinDir(ctx context.Context) string {
-	if r.binDir != "" {
-		return r.binDir
+	if prefix := r.brewPrefix(ctx); prefix != "" {
+		return prefix + "/bin"
+	}
+	return ""
+}
+
+// brewPrefix returns Homebrew's install prefix, or "" when it cannot be
+// determined. The prefix never changes within one update, so the first
+// successful lookup is memoized to avoid repeated brew invocations.
+func (r *runner) brewPrefix(ctx context.Context) string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.prefix != "" {
+		return r.prefix
 	}
 	out, err := r.brewCmd(ctx, "--prefix").Output()
 	if err != nil {
 		return ""
 	}
-	r.binDir = strings.TrimSpace(string(out)) + "/bin"
-	return r.binDir
+	r.prefix = strings.TrimSpace(string(out))
+	return r.prefix
 }
 
 // cleanup handles copies of the binary found on PATH outside Homebrew, so the
@@ -461,11 +622,13 @@ func (r *runner) removeConflict(path string) {
 	}
 }
 
-// spin runs a brew command under a spinner via [updater.Spin], logging a
-// completion line on success and surfacing [runner.run]'s error on failure.
+// spin runs a mutating brew command under a spinner via [updater.Spin], logging
+// a completion line on success and surfacing the error on failure. It waits out
+// a concurrent process holding the formula lock (see [runner.runAwaitingLock])
+// rather than failing on it.
 func (r *runner) spin(ctx context.Context, msg string, args ...string) error {
-	return updater.Spin(ctx, msg, func(ctx context.Context) error {
-		return r.run(ctx, args...)
+	return updater.SpinProgress(ctx, msg, func(ctx context.Context, u *fx.Update) error {
+		return r.runAwaitingLock(ctx, waitRelabel(u, msg), args...)
 	})
 }
 
@@ -500,7 +663,11 @@ func (r *runner) brewSilent(ctx context.Context, args ...string) {
 // clearing the proxy when cfg.noProxy is set.
 func (r *runner) brewCmd(ctx context.Context, args ...string) *exec.Cmd {
 	cmd := exec.CommandContext(ctx, r.brew, args...) //nolint:gosec // controlled args
-	cmd.Env = append(os.Environ(), "HOMEBREW_NO_ENV_HINTS=1")
+	// We drive the formula refresh ourselves via r.fetch, so suppress brew's
+	// implicit pre-command auto-update: it would only repeat that work, and -
+	// since it grabs the same `brew update` lock - would reintroduce the very
+	// "another process is already running" contention r.fetch waits out.
+	cmd.Env = append(os.Environ(), "HOMEBREW_NO_ENV_HINTS=1", "HOMEBREW_NO_AUTO_UPDATE=1")
 	if r.cfg.noProxy {
 		cmd.Env = append(cmd.Env, updater.ProxyBypass()...)
 	}

@@ -37,7 +37,24 @@ type Field struct {
 // without the spinner logging its own error line, so the caller reports the
 // failure exactly once.
 func Spin(ctx context.Context, msg string, fn func(context.Context) error, fields ...Field) error {
-	res := SpinResult(ctx, msg, fn, fields...)
+	return SpinProgress(
+		ctx, msg,
+		func(ctx context.Context, _ *fx.Update) error { return fn(ctx) },
+		fields...,
+	)
+}
+
+// SpinProgress is [Spin] where fn additionally receives the spinner's live
+// [fx.Update], letting it revise the running label mid-flight (e.g. switch to a
+// "Waiting ..." message while it blocks). The success completion line still uses
+// msg, so a temporary relabel does not change what is committed to scrollback.
+func SpinProgress(
+	ctx context.Context,
+	msg string,
+	fn func(context.Context, *fx.Update) error,
+	fields ...Field,
+) error {
+	res := spinResultProgress(ctx, msg, false, fn, fields...)
 	if err := res.Silent(); err != nil {
 		return err
 	}
@@ -61,6 +78,22 @@ func SpinTimeout(
 	timeout time.Duration,
 	fn func(context.Context) error,
 ) error {
+	return SpinTimeoutProgress(
+		ctx, msg, doneMsg, timeoutMsg, timeout,
+		func(ctx context.Context, _ *fx.Update) error { return fn(ctx) },
+	)
+}
+
+// SpinTimeoutProgress is [SpinTimeout] where fn is additionally handed the
+// spinner's live [fx.Update], letting it revise the running label mid-flight -
+// e.g. to switch "Fetching ..." to "Waiting for another process ..." while it
+// blocks - without disturbing the timeout, done, and error handling.
+func SpinTimeoutProgress(
+	ctx context.Context,
+	msg, doneMsg, timeoutMsg string,
+	timeout time.Duration,
+	fn func(context.Context, *fx.Update) error,
+) error {
 	// Bound the task - not the spinner - with the timeout. If the timeout
 	// cancelled the spinner's own context, the spinner would treat it as an
 	// interrupt and freeze its last frame as a committed line, printing the
@@ -70,7 +103,9 @@ func SpinTimeout(
 	taskCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	res := SpinResult(ctx, msg, func(context.Context) error { return fn(taskCtx) })
+	res := spinResultProgress(ctx, msg, false, func(_ context.Context, u *fx.Update) error {
+		return fn(taskCtx, u)
+	})
 	if err := res.Silent(); err != nil {
 		if errors.Is(taskCtx.Err(), context.DeadlineExceeded) {
 			res.TaskErr = errors.New(timeoutMsg)
@@ -95,17 +130,11 @@ func SpinResult(
 	fn func(context.Context) error,
 	fields ...Field,
 ) *fx.WaitResult {
-	elapsedOnce.Do(func() {
-		f := clog.Default.FieldFormats()
-		f.ElapsedMinimum = elapsedMinimum
-		clog.Default.SetFieldFormats(f)
-	})
-
-	b := clog.Spinner(msg).MessageStyle(symbols.messageStyle())
-	for _, f := range fields {
-		b = b.Str(f.Key, f.Val)
-	}
-	return b.Elapsed("elapsed").Wait(ctx, fn)
+	return spinResultProgress(
+		ctx, msg, false,
+		func(ctx context.Context, _ *fx.Update) error { return fn(ctx) },
+		fields...,
+	)
 }
 
 // TransientSpinResult is like [SpinResult], but suppresses the non-TTY progress
@@ -116,15 +145,45 @@ func TransientSpinResult(
 	fn func(context.Context) error,
 	fields ...Field,
 ) *fx.WaitResult {
+	return spinResultProgress(
+		ctx, msg, true,
+		func(ctx context.Context, _ *fx.Update) error { return fn(ctx) },
+		fields...,
+	)
+}
+
+// TransientSpinResultProgress is [TransientSpinResult] where fn additionally
+// receives the spinner's live [fx.Update] to revise the running label mid-flight.
+func TransientSpinResultProgress(
+	ctx context.Context,
+	msg string,
+	fn func(context.Context, *fx.Update) error,
+	fields ...Field,
+) *fx.WaitResult {
+	return spinResultProgress(ctx, msg, true, fn, fields...)
+}
+
+// spinResultProgress is the shared core of the Spin* helpers: it runs fn under a
+// clog spinner labelled msg via the Progress path (so fn can revise the label
+// through the [fx.Update]) and returns the unfinalized result. transient
+// suppresses the non-TTY progress line, leaving only the caller's completion
+// message in scrollback.
+func spinResultProgress(
+	ctx context.Context,
+	msg string,
+	transient bool,
+	fn func(context.Context, *fx.Update) error,
+	fields ...Field,
+) *fx.WaitResult {
 	elapsedOnce.Do(func() {
 		f := clog.Default.FieldFormats()
 		f.ElapsedMinimum = elapsedMinimum
 		clog.Default.SetFieldFormats(f)
 	})
 
-	b := clog.Spinner(msg).NonTTYSilent(true).MessageStyle(symbols.messageStyle())
+	b := clog.Spinner(msg).NonTTYSilent(transient).MessageStyle(symbols.messageStyle())
 	for _, f := range fields {
 		b = b.Str(f.Key, f.Val)
 	}
-	return b.Elapsed("elapsed").Wait(ctx, fn)
+	return b.Elapsed("elapsed").Progress(ctx, fn)
 }
