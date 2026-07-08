@@ -208,11 +208,16 @@ func (i Info) VersionLink(v string) string {
 	return hyperlink(link, v)
 }
 
-// hyperlink renders an OSC 8 terminal hyperlink when stdout is a terminal,
-// degrading to just the display text (no URL) otherwise.
+// hyperlink renders an OSC 8 terminal hyperlink when stderr is a terminal,
+// degrading to just the display text (no URL) otherwise. Stderr is checked
+// rather than stdout because every VersionLink caller outside of
+// PrintDetailed renders through clog - whose default output, and the
+// updater/notify packages' own terminal gating (e.g. notify.Check), both
+// target stderr by convention - so this keeps the hyperlink decision aligned
+// with the stream that actually receives it.
 func hyperlink(url, text string) string {
 	a := xansi.New(
-		xansi.WithTerminal(terminal.Is(os.Stdout)),
+		xansi.WithTerminal(terminal.Is(os.Stderr)),
 		xansi.WithHyperlinkFallback(xansi.HyperlinkFallbackText),
 	)
 	return a.Hyperlink(url, text)
