@@ -5,15 +5,15 @@ import (
 	"errors"
 	"testing"
 
-	selfupdate "github.com/creativeprojects/go-selfupdate"
 	"github.com/gechr/clive"
+	"github.com/gechr/clive/updater/github/internal/installer"
 	"github.com/stretchr/testify/require"
 )
 
 // withResolve stubs release discovery for a test and restores it on cleanup.
 func withResolve(
 	t *testing.T,
-	fn func(context.Context, Config, bool) (*selfupdate.Updater, *selfupdate.Release, bool, error),
+	fn func(context.Context, Config, bool) (*installer.Updater, *installer.Release, bool, error),
 ) {
 	t.Helper()
 	prev := resolve
@@ -33,7 +33,7 @@ func notFound(
 	context.Context,
 	Config,
 	bool,
-) (*selfupdate.Updater, *selfupdate.Release, bool, error) {
+) (*installer.Updater, *installer.Release, bool, error) {
 	return nil, nil, false, nil
 }
 
@@ -144,7 +144,7 @@ func TestCheckPropagatesError(t *testing.T) {
 	boom := errors.New("rate limited")
 	withResolve(
 		t,
-		func(context.Context, Config, bool) (*selfupdate.Updater, *selfupdate.Release, bool, error) {
+		func(context.Context, Config, bool) (*installer.Updater, *installer.Release, bool, error) {
 			return nil, nil, false, boom
 		},
 	)

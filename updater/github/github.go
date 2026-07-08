@@ -5,8 +5,8 @@
 // reports whether a newer release exists without installing anything.
 //
 // The release discovery, OS/arch asset matching, archive extraction, checksum
-// validation, and rollback-safe replacement are done by
-// github.com/creativeprojects/go-selfupdate; this package is a thin wrapper that
+// validation, and rollback-safe replacement are done by clive's internal
+// installer package; this package is a thin wrapper that
 // gives a github-distributed tool the same Config/[updater.Tool] interface,
 // clog UX, install-directory default, and notify integration as updater/brew and
 // updater/goinstall. Private repositories work by piggybacking on the gh CLI's
@@ -26,9 +26,9 @@ import (
 	"time"
 
 	ghauth "github.com/cli/go-gh/v2/pkg/auth"
-	selfupdate "github.com/creativeprojects/go-selfupdate"
 	"github.com/gechr/clive"
 	"github.com/gechr/clive/updater"
+	"github.com/gechr/clive/updater/github/internal/installer"
 	"github.com/gechr/clive/version"
 	xos "github.com/gechr/x/os"
 )
@@ -65,10 +65,10 @@ func (c Config) Update(ctx context.Context, dev, _ bool) error {
 // tests can pin a known value; production always uses [clive.Current].
 var currentVersion = clive.Current
 
-// resolve discovers the latest release via go-selfupdate, returning the updater
-// for a follow-up install. It is a package var so tests can stub discovery
-// without touching the network.
-var resolve = func(ctx context.Context, cfg Config, prerelease bool) (*selfupdate.Updater, *selfupdate.Release, bool, error) {
+// resolve discovers the latest release via the internal installer engine,
+// returning the updater for a follow-up install. It is a package var so tests
+// can stub discovery without touching the network.
+var resolve = func(ctx context.Context, cfg Config, prerelease bool) (*installer.Updater, *installer.Release, bool, error) {
 	owner, name, err := repo(cfg.info)
 	if err != nil {
 		return nil, nil, false, err
@@ -77,7 +77,7 @@ var resolve = func(ctx context.Context, cfg Config, prerelease bool) (*selfupdat
 	if err != nil {
 		return nil, nil, false, err
 	}
-	rel, found, err := up.DetectLatest(ctx, selfupdate.NewRepositorySlug(owner, name))
+	rel, found, err := up.DetectLatest(ctx, installer.NewRepositorySlug(owner, name))
 	return up, rel, found, err
 }
 
@@ -155,8 +155,8 @@ func Update(ctx context.Context, cfg Config, channel Channel) error {
 	prerelease := cfg.prerelease || channel == Prerelease
 
 	var (
-		up    *selfupdate.Updater
-		rel   *selfupdate.Release
+		up    *installer.Updater
+		rel   *installer.Release
 		found bool
 	)
 	err := updater.Spin(ctx, fmt.Sprintf("Fetching latest %s release", cfg.DisplayName()),
@@ -191,24 +191,24 @@ func Update(ctx context.Context, cfg Config, channel Channel) error {
 	return nil
 }
 
-// newUpdater builds the go-selfupdate updater: a GitHub source authenticated with
+// newUpdater builds the installer updater: a GitHub source authenticated with
 // the resolved token, a goreleaser checksums validator unless disabled, and any
 // asset filters.
-func newUpdater(cfg Config, prerelease bool) (*selfupdate.Updater, error) {
-	source, err := selfupdate.NewGitHubSource(selfupdate.GitHubConfig{
+func newUpdater(cfg Config, prerelease bool) (*installer.Updater, error) {
+	source, err := installer.NewGitHubSource(installer.GitHubConfig{
 		APIToken:          resolveToken(cfg),
 		EnterpriseBaseURL: cfg.enterpriseURL,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("github: build source: %w", err)
 	}
-	var validator selfupdate.Validator
+	var validator installer.Validator
 	if !cfg.skipChecksum {
-		validator = &selfupdate.ChecksumValidator{
+		validator = &installer.ChecksumValidator{
 			UniqueFilename: cmp.Or(cfg.checksumFile, checksumsFilename),
 		}
 	}
-	up, err := selfupdate.NewUpdater(selfupdate.Config{
+	up, err := installer.NewUpdater(installer.Config{
 		Source:        source,
 		Validator:     validator,
 		Filters:       cfg.filters,
@@ -243,7 +243,7 @@ func tokenHost(cfg Config) string {
 
 // installPath is the absolute path the binary is installed to, creating the
 // install directory and, on a fresh install, an empty placeholder binary.
-// go-selfupdate renames the existing binary to a .old backup before swapping in
+// the installer renames the existing binary to a .old backup before swapping in
 // the new one (for rollback); on a first install the target does not exist yet,
 // so the placeholder gives that step something to rename. The backup is removed
 // on success.
@@ -312,7 +312,7 @@ func repo(info clive.Info) (string, string, error) {
 }
 
 // BinaryName is the executable/command name, defaulting to the repo (or module)
-// name. It is also the name go-selfupdate looks for inside a downloaded archive.
+// name. It is also the name the installer looks for inside a downloaded archive.
 func (c Config) BinaryName() string {
 	if c.binary != "" {
 		return c.binary
@@ -336,7 +336,7 @@ func (c Config) VersionLink(v string) string { return c.info.VersionLink(v) }
 
 // LatestRef returns the latest release's tag, letting [Config] satisfy
 // [updater.Tool] so a github-distributed tool feeds notify the same "latest" the
-// updater installs. The client is unused: go-selfupdate manages its own HTTP.
+// updater installs. The client is unused: the installer manages its own HTTP.
 func (c Config) LatestRef(ctx context.Context, _ *http.Client) (string, error) {
 	_, rel, found, err := resolve(ctx, c, c.prerelease)
 	if err != nil {
