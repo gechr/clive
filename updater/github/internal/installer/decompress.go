@@ -169,6 +169,9 @@ func unarchiveTar(src io.Reader, cmd, os, arch string) (io.Reader, error) {
 		if err != nil {
 			return nil, fmt.Errorf("%w tar file: %w", ErrCannotDecompressFile, err)
 		}
+		if h.FileInfo().IsDir() {
+			continue
+		}
 		_, name := filepath.Split(h.Name)
 		if matchExecutableName(cmd, os, arch, name) {
 			log.Printf("Executable file %q was found in tar archive", h.Name)
