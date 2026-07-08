@@ -1,6 +1,7 @@
 package brew
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -10,6 +11,8 @@ import (
 	"testing"
 
 	"github.com/gechr/clive"
+	"github.com/gechr/clive/updater"
+	"github.com/gechr/clog"
 	xshell "github.com/gechr/x/shell"
 	xstrings "github.com/gechr/x/strings"
 	"github.com/stretchr/testify/require"
@@ -292,6 +295,25 @@ func TestRunAwaitingLockRetriesPastFormulaLock(t *testing.T) {
 	out, err := os.ReadFile(log)
 	require.NoError(t, err)
 	require.Equal(t, []string{"--prefix", "upgrade app", "upgrade app"}, commandLog(out))
+}
+
+func TestUpgradeRewritesContextDeadlineExceeded(t *testing.T) {
+	buf := captureDefault(t)
+	err := upgradeTimeoutError(context.DeadlineExceeded)
+
+	require.ErrorIs(t, err, updater.ErrReported)
+	require.EqualError(t, err, "update failed: Timed out while waiting for upgrade")
+	require.Equal(t, "ERR ❌ Timed out while waiting for upgrade elapsed=5m\n", buf.String())
+}
+
+func captureDefault(t *testing.T) *bytes.Buffer {
+	t.Helper()
+
+	var buf bytes.Buffer
+	prev := clog.Default
+	clog.Default = clog.New(clog.TestOutput(&buf))
+	t.Cleanup(func() { clog.Default = prev })
+	return &buf
 }
 
 func TestUpdateSurfacesNonLockError(t *testing.T) {

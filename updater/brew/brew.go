@@ -35,15 +35,18 @@ import (
 	xstrings "github.com/gechr/x/strings"
 )
 
-// brewTimeout bounds a full update; compiling --HEAD from source can be slow.
-const brewTimeout = 5 * time.Minute
+// brewUpgradeTimeout bounds `brew upgrade`; compiling --HEAD from source can be
+// slow, but should still not block a self-update indefinitely.
+const brewUpgradeTimeout = 5 * time.Minute
 
-// defaultFetchTimeout bounds the initial `brew update` formula refresh, which is
-// normally quick. A much longer hang means a stuck network fetch, so we cut it
-// off well before the overall brewTimeout rather than blocking the whole update.
-// It also bounds how long fetch waits for a concurrent brew process to release
-// the update lock. A consumer can override it per-update via [WithFetchTimeout].
-const defaultFetchTimeout = 2 * time.Minute
+// defaultFetchTimeout bounds the initial `brew update` formula refresh. It also
+// bounds how long fetch waits for a concurrent brew process to release the
+// update lock. A consumer can override it per-update via [WithFetchTimeout].
+const defaultFetchTimeout = brewUpgradeTimeout
+
+// brewTimeout bounds the full Homebrew update orchestration while still leaving
+// the upgrade phase its own five-minute deadline after a default fetch.
+const brewTimeout = defaultFetchTimeout + brewUpgradeTimeout
 
 // brewLockPoll is how often [runner.waitLock] re-checks whether a concurrent
 // brew process has released a `brew update` or per-formula lock.
@@ -383,7 +386,11 @@ type runner struct {
 
 // upgrade upgrades an installed formula, tapping and installing it first when it
 // is not yet present. A dev build re-fetches HEAD so it stays on source.
-func (r *runner) upgrade(ctx context.Context) error {
+func (r *runner) upgrade(ctx context.Context) (err error) {
+	ctx, cancel := context.WithTimeout(ctx, brewUpgradeTimeout)
+	defer cancel()
+	defer func() { err = upgradeTimeoutError(err) }()
+
 	if !r.present {
 		return r.install(ctx, headBuild.MatchString(r.current))
 	}
@@ -408,6 +415,16 @@ func (r *runner) upgrade(ctx context.Context) error {
 		r.before,
 		r.installedVersion(ctx),
 	)
+}
+
+func upgradeTimeoutError(err error) error {
+	if errors.Is(err, context.DeadlineExceeded) {
+		msg := "Timed out while waiting for upgrade"
+		clog.Error().Duration("elapsed", brewUpgradeTimeout).Msg(msg)
+		//nolint:staticcheck // user-facing message
+		return fmt.Errorf("%w: %w", updater.ErrReported, errors.New(msg))
+	}
+	return err
 }
 
 // reinstall uninstalls any existing copy then installs the chosen channel,

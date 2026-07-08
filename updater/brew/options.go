@@ -10,7 +10,7 @@ type Option func(*Config)
 func WithBinary(binary string) Option { return func(c *Config) { c.binary = binary } }
 
 // WithFetchTimeout bounds the initial `brew update` formula refresh; the zero
-// value uses a two-minute default. Raise it on a slow link, or lower it to fail
+// value uses a five-minute default. Raise it on a slow link, or lower it to fail
 // faster.
 func WithFetchTimeout(d time.Duration) Option { return func(c *Config) { c.fetchTimeout = d } }
 
