@@ -91,7 +91,7 @@ func TestSpinTimeoutSupplantsSpinnerOnTimeout(t *testing.T) {
 	// second generic failure line.
 	require.Equal(t,
 		"INF ⏳ Fetching latest App Homebrew formula\n"+
-			"ERR ❌ Timed out while fetching App Homebrew formula timeout=10ms\n",
+			"ERR ❌ Timed out while fetching App Homebrew formula\n",
 		buf.String(),
 	)
 }
