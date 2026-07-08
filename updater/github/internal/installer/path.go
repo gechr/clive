@@ -2,19 +2,19 @@ package installer
 
 import (
 	"os"
+
+	xfilepath "github.com/gechr/x/filepath"
 )
 
-// GetExecutablePath returns the path of the executable file with all symlinks resolved.
-func GetExecutablePath() (string, error) {
+// executablePath returns the running executable's path with all symlinks resolved.
+func executablePath() (string, error) {
 	exe, err := os.Executable()
 	if err != nil {
 		return "", err
 	}
-
-	exe, err = ResolvePath(exe)
+	resolved, err := xfilepath.Resolve(exe)
 	if err != nil {
 		return "", err
 	}
-
-	return exe, nil
+	return resolved, nil
 }

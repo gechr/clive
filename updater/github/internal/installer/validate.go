@@ -3,8 +3,9 @@ package installer
 import (
 	"bytes"
 	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
+
+	xstrings "github.com/gechr/x/strings"
 )
 
 // checksumLineParts is the number of whitespace-separated fields in a checksums
@@ -38,16 +39,13 @@ func (v *SHAValidator) Validate(_ string, release, asset []byte) error {
 	hash := string(asset[:sha256.BlockSize])
 	calculatedHash := fmt.Sprintf("%x", sha256.Sum256(release))
 
-	if equal, err := hexStringEquals(sha256.Size, calculatedHash, hash); !equal {
-		if err == nil {
-			return fmt.Errorf(
-				"expected %q, found %q: %w",
-				hash,
-				calculatedHash,
-				ErrChecksumValidationFailed,
-			)
-		}
-		return fmt.Errorf("%w: %w", err, ErrChecksumValidationFailed)
+	if !xstrings.HexEqual(calculatedHash, hash) {
+		return fmt.Errorf(
+			"expected %q, found %q: %w",
+			hash,
+			calculatedHash,
+			ErrChecksumValidationFailed,
+		)
 	}
 	return nil
 }
@@ -104,22 +102,6 @@ func findChecksum(filename string, content []byte) (string, error) {
 // GetValidationAssetName returns the unique asset name for SHA256 validation.
 func (v *ChecksumValidator) GetValidationAssetName(_ string) string {
 	return v.UniqueFilename
-}
-
-func hexStringEquals(size int, a, b string) (bool, error) {
-	size *= 2
-	if len(a) != size || len(b) != size {
-		return false, nil
-	}
-	bytesA, err := hex.DecodeString(a)
-	if err != nil {
-		return false, err
-	}
-	bytesB, err := hex.DecodeString(b)
-	if err != nil {
-		return false, err
-	}
-	return bytes.Equal(bytesA, bytesB), nil
 }
 
 // Verify interface

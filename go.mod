@@ -8,12 +8,11 @@ require (
 	github.com/Masterminds/semver/v3 v3.5.0
 	github.com/cli/go-gh/v2 v2.13.0
 	github.com/gechr/clog v0.12.6
-	github.com/gechr/x v0.2.14
+	github.com/gechr/x v0.2.15
 	github.com/google/go-github/v88 v88.0.0
 	github.com/hashicorp/go-version v1.9.0
 	github.com/stretchr/testify v1.11.1
 	github.com/ulikunitz/xz v0.5.15
-	golang.org/x/sys v0.47.0
 )
 
 require (
@@ -226,7 +225,8 @@ require (
 	golang.org/x/exp/typeparams v0.0.0-20260209203927-2842357ff358 // indirect
 	golang.org/x/mod v0.37.0 // indirect
 	golang.org/x/sync v0.21.0 // indirect
-	golang.org/x/term v0.44.0 // indirect
+	golang.org/x/sys v0.47.0 // indirect
+	golang.org/x/term v0.45.0 // indirect
 	golang.org/x/text v0.38.0 // indirect
 	golang.org/x/tools v0.47.0 // indirect
 	google.golang.org/protobuf v1.36.11 // indirect

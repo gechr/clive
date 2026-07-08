@@ -53,7 +53,7 @@ func NewUpdater(config Config) (*Updater, error) {
 	}
 	arm := config.Arm
 	if arm == 0 && arch == "arm" {
-		exe, _ := GetExecutablePath()
+		exe, _ := executablePath()
 		arm = getGOARM(exe)
 	}
 	universalArch := ""
