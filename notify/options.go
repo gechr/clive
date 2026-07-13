@@ -63,6 +63,15 @@ func WithOutdatedHintSymbol(symbol string) Option {
 	}
 }
 
+// WithOutdatedHintCommand overrides the command the update hint tells the user
+// to run (default "<binary> update"). Use this for a tool whose self-update is
+// invoked differently, e.g. a flag-only grammar's "<binary> --self-update".
+func WithOutdatedHintCommand(command string) Option {
+	return func(c *checker) {
+		c.hintOpts = append(c.hintOpts, updater.WithOutdatedHintCommand(command))
+	}
+}
+
 // WithComparator overrides the decision that latest is an update over current.
 // The default comparator is semver-based and treats dev builds as ahead of their
 // base tag. Non-semver tracks can provide a comparator such as current != latest.
