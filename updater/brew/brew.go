@@ -31,6 +31,7 @@ import (
 	"github.com/gechr/clive/updater"
 	"github.com/gechr/clog"
 	"github.com/gechr/clog/fx"
+	"github.com/gechr/x/human"
 	xos "github.com/gechr/x/os"
 	xstrings "github.com/gechr/x/strings"
 )
@@ -598,7 +599,7 @@ func (r *runner) resolveConflict(path string, shadows bool) {
 	if r.cfg.onConflict == ConflictWarn {
 		if shadows {
 			clog.Warn().
-				Path("path", path).
+				PathText("path", human.ContractHome(path), path).
 				Msgf("Another copy of %s in your `$PATH` is shadowing the Homebrew install", r.cfg.DisplayName())
 		}
 		return
@@ -610,13 +611,13 @@ func (r *runner) resolveConflict(path string, shadows bool) {
 		clog.Info().
 			Symbol(updater.TrashSymbol()).
 			MessageStyle(updater.MessageStyle()).
-			Path("path", path).
+			PathText("path", human.ContractHome(path), path).
 			Msgf("Trashed stray %s installation", r.cfg.DisplayName())
 	case errors.Is(err, errors.ErrUnsupported):
 		r.removeConflict(path)
 	default:
 		clog.Warn().
-			Path("path", path).
+			PathText("path", human.ContractHome(path), path).
 			Err(err).
 			Msgf("Failed to trash stray %s installation", r.cfg.DisplayName())
 	}
@@ -627,14 +628,14 @@ func (r *runner) resolveConflict(path string, shadows bool) {
 func (r *runner) removeConflict(path string) {
 	if err := os.Remove(path); err != nil {
 		clog.Warn().
-			Path("path", path).
+			PathText("path", human.ContractHome(path), path).
 			Err(err).
 			Msgf("Failed to remove stray %s installation", r.cfg.DisplayName())
 	} else {
 		clog.Info().
 			Symbol(updater.TrashSymbol()).
 			MessageStyle(updater.MessageStyle()).
-			Path("path", path).
+			PathText("path", human.ContractHome(path), path).
 			Msgf("Removed stray %s installation", r.cfg.DisplayName())
 	}
 }
