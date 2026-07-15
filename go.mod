@@ -1,6 +1,6 @@
 module github.com/gechr/clive
 
-// clover: provider=auto
+// @clover
 go 1.26.5
 
 require (
