@@ -613,6 +613,10 @@ func (r *runner) resolveConflict(path string, shadows bool) {
 			MessageStyle(updater.MessageStyle()).
 			PathText("path", human.ContractHome(path), path).
 			Msgf("Trashed stray %s installation", r.cfg.DisplayName())
+	case errors.Is(err, os.ErrNotExist):
+		// The stray copy is already gone - typically a concurrent upgrade
+		// trashed it first. Its absence is the goal, so stay silent.
+		break
 	case errors.Is(err, errors.ErrUnsupported):
 		r.removeConflict(path)
 	default:
