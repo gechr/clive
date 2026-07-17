@@ -556,12 +556,11 @@ func (c *checker) envVar() string {
 	return strings.ToUpper(c.tool.BinaryName()) + envSuffix
 }
 
-// printHint logs the one-line "update available" hint: a leading blank line, the
-// 💡 symbol, the installed and latest refs as fields, and a coloured message
-// whose `<binary> update` command is bold.
+// printHint logs the one-line "update available" hint: the 💡 symbol, the
+// installed and latest refs as fields, and a coloured message whose
+// `<binary> update` command is bold.
 func (c *checker) printHint(res Result) {
 	installed, latest := c.hintRefs(res)
-	fmt.Fprintln(os.Stderr)
 	opts := append([]updater.HintOption{updater.WithOutdatedHintColor(c.color)}, c.hintOpts...)
 	updater.NewOutdatedHint(opts...).
 		Log(c.tool.DisplayName(), c.tool.BinaryName(), installed, latest)
