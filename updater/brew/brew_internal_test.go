@@ -330,7 +330,7 @@ func TestUpdateSurfacesNonLockError(t *testing.T) {
 	// A genuine `brew update` failure is not mistaken for a lock and is returned
 	// verbatim rather than swallowed.
 	err := r.update(context.Background(), nil)
-	require.ErrorContains(t, err, "network unreachable")
+	require.EqualError(t, err, "fatal: network unreachable")
 }
 
 func TestIsBrewLocked(t *testing.T) {

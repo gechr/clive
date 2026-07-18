@@ -150,7 +150,7 @@ func TestCheckPropagatesError(t *testing.T) {
 	)
 	err := Check(context.Background(), Config{info: clive.Info{Repo: "gechr/clive"}})
 	require.ErrorIs(t, err, boom)
-	require.ErrorContains(t, err, "check for updates")
+	require.EqualError(t, err, "check for updates: rate limited")
 }
 
 func TestUpdateNoOpWhenNotFound(t *testing.T) {
