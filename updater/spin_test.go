@@ -24,9 +24,9 @@ func captureDefault(t *testing.T) *bytes.Buffer {
 	f := l.FieldFormats()
 	f.ElapsedMinimum = 3 * time.Second
 	l.SetFieldFormats(f)
-	prev := clog.Default
-	clog.Default = l
-	t.Cleanup(func() { clog.Default = prev })
+	prev := clog.Default()
+	clog.SetDefault(l)
+	t.Cleanup(func() { clog.SetDefault(prev) })
 	return &buf
 }
 

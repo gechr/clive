@@ -7,8 +7,8 @@ require (
 	charm.land/lipgloss/v2 v2.0.5
 	github.com/Masterminds/semver/v3 v3.5.0
 	github.com/cli/go-gh/v2 v2.13.0
-	github.com/gechr/clog v0.13.17
-	github.com/gechr/x v0.3.10
+	github.com/gechr/clog v0.14.1
+	github.com/gechr/x v0.4.2
 	github.com/google/go-github/v88 v88.0.0
 	github.com/hashicorp/go-version v1.9.0
 	github.com/stretchr/testify v1.11.1

@@ -310,9 +310,9 @@ func captureDefault(t *testing.T) *bytes.Buffer {
 	t.Helper()
 
 	var buf bytes.Buffer
-	prev := clog.Default
-	clog.Default = clog.New(clog.TestOutput(&buf))
-	t.Cleanup(func() { clog.Default = prev })
+	prev := clog.Default()
+	clog.SetDefault(clog.New(clog.TestOutput(&buf)))
+	t.Cleanup(func() { clog.SetDefault(prev) })
 	return &buf
 }
 
