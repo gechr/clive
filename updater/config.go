@@ -45,7 +45,7 @@ const (
 	// defaultElapsedMinimum is the default for [Config.elapsedMinimum].
 	defaultElapsedMinimum = 3 * time.Second
 	// defaultGradientMax is the default for [Config.gradientMax].
-	defaultGradientMax = 20 * time.Second
+	defaultGradientMax = 30 * time.Second
 )
 
 // cfg is the package-level active configuration read by Report, UpToDate,
