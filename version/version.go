@@ -66,18 +66,16 @@ func IsDev(v string) bool {
 		return true
 	}
 
-	idx := strings.LastIndex(v, markerGit)
-	if idx <= 0 {
+	prefix, _, found := strings.CutLast(v, markerGit)
+	if !found || prefix == "" {
 		return false
 	}
 
-	prefix := v[:idx]
-	lastDash := strings.LastIndex(prefix, "-")
-	if lastDash < 0 {
+	_, commitCount, found := strings.CutLast(prefix, "-")
+	if !found {
 		return false
 	}
 
-	commitCount := prefix[lastDash+1:]
 	return xstrings.IsDigits(commitCount)
 }
 
@@ -85,16 +83,14 @@ func IsDev(v string) bool {
 // git-describe-formatted version string (e.g. "v1.2.3-4-gabcdef[-dev]"), or 0.
 func CommitCount(v string) int {
 	v = strings.TrimSuffix(RemovePrefix(v), markerDev)
-	idx := strings.LastIndex(v, markerGit)
-	if idx <= 0 {
+	prefix, _, found := strings.CutLast(v, markerGit)
+	if !found || prefix == "" {
 		return 0
 	}
-	prefix := v[:idx]
-	lastDash := strings.LastIndex(prefix, "-")
-	if lastDash < 0 {
+	_, countStr, found := strings.CutLast(prefix, "-")
+	if !found {
 		return 0
 	}
-	countStr := prefix[lastDash+1:]
 	if !xstrings.IsDigits(countStr) {
 		return 0
 	}
@@ -126,8 +122,8 @@ func extractDevBase(trimmed string) string {
 		return base
 	}
 	// Old format: "0.21.3-3b71351" - strip the trailing -HASH
-	if lastDash := strings.LastIndex(trimmed, "-"); lastDash > 0 {
-		return trimmed[:lastDash]
+	if base, _, found := strings.CutLast(trimmed, "-"); found && base != "" {
+		return base
 	}
 	return trimmed
 }
@@ -135,19 +131,18 @@ func extractDevBase(trimmed string) string {
 // stripCountedGitHash removes a "-N-gHASH" suffix and returns the base.
 // Reports false if the input doesn't end in that shape.
 func stripCountedGitHash(v string) (string, bool) {
-	idx := strings.LastIndex(v, markerGit)
-	if idx <= 0 {
+	prefix, _, found := strings.CutLast(v, markerGit)
+	if !found || prefix == "" {
 		return "", false
 	}
-	prefix := v[:idx]
-	lastDash := strings.LastIndex(prefix, "-")
-	if lastDash <= 0 {
+	base, count, found := strings.CutLast(prefix, "-")
+	if !found || base == "" {
 		return "", false
 	}
-	if !xstrings.IsDigits(prefix[lastDash+1:]) {
+	if !xstrings.IsDigits(count) {
 		return "", false
 	}
-	return prefix[:lastDash], true
+	return base, true
 }
 
 // stripGitDescribe removes a "-N-gHASH" suffix from a non-dev-suffixed

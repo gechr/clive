@@ -348,8 +348,7 @@ func vcsRevision(info *debug.BuildInfo) string {
 func extractCommitHash(v string) string {
 	v = ver.RemovePrefix(v)
 	// "X.Y.Z-N-gHASH" or "X.Y.Z-N-gHASH-dev"
-	if idx := strings.LastIndex(v, "-g"); idx > 0 {
-		rest := v[idx+2:]
+	if base, rest, found := strings.CutLast(v, "-g"); found && base != "" {
 		rest = strings.TrimSuffix(rest, "-dev")
 		if isHex(rest) {
 			return rest
@@ -357,8 +356,7 @@ func extractCommitHash(v string) string {
 	}
 	// Old "X.Y.Z-HASH-dev" with no -g marker
 	if rest, ok := strings.CutSuffix(v, "-dev"); ok {
-		if i := strings.LastIndex(rest, "-"); i > 0 {
-			cand := rest[i+1:]
+		if base, cand, found := strings.CutLast(rest, "-"); found && base != "" {
 			if isHex(cand) {
 				return cand
 			}
