@@ -1,16 +1,18 @@
 module github.com/gechr/clive
 
 // @clover
-go 1.26.6
+go 1.27.0
 
 require (
 	charm.land/lipgloss/v2 v2.0.6
 	github.com/Masterminds/semver/v3 v3.5.0
 	github.com/cli/go-gh/v2 v2.13.0
 	github.com/gechr/clog v0.17.0
+	github.com/gechr/gorules v0.0.3
 	github.com/gechr/x v0.5.19
 	github.com/google/go-github/v88 v88.0.0
 	github.com/hashicorp/go-version v1.9.0
+	github.com/quasilyte/go-ruleguard/dsl v0.3.23
 	github.com/stretchr/testify v1.11.1
 	github.com/ulikunitz/xz v0.5.16
 )
@@ -80,7 +82,6 @@ require (
 	github.com/firefart/nonamedreturns v1.0.6 // indirect
 	github.com/fsnotify/fsnotify v1.6.0 // indirect
 	github.com/fzipp/gocyclo v0.6.0 // indirect
-	github.com/gechr/gorules v0.0.3
 	github.com/ghostiam/protogetter v0.3.20 // indirect
 	github.com/go-critic/go-critic v0.14.3 // indirect
 	github.com/go-toolsmith/astcast v1.1.0 // indirect
@@ -168,7 +169,6 @@ require (
 	github.com/prometheus/common v0.32.1 // indirect
 	github.com/prometheus/procfs v0.7.3 // indirect
 	github.com/quasilyte/go-ruleguard v0.4.5 // indirect
-	github.com/quasilyte/go-ruleguard/dsl v0.3.23
 	github.com/quasilyte/gogrep v0.5.0 // indirect
 	github.com/quasilyte/regex/syntax v0.0.0-20210819130434-b3f0c404a727 // indirect
 	github.com/quasilyte/stdinfo v0.0.0-20220114132959-f7386bf02567 // indirect
