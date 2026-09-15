@@ -6,7 +6,7 @@ go 1.27.1
 require (
 	charm.land/lipgloss/v2 v2.0.6
 	github.com/Masterminds/semver/v3 v3.5.0
-	github.com/cli/go-gh/v2 v2.16.0
+	github.com/cli/go-gh/v2 v2.16.1
 	github.com/gechr/clog v0.17.1
 	github.com/gechr/gorules v0.0.3
 	github.com/gechr/x v0.6.0

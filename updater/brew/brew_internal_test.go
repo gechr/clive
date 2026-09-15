@@ -9,6 +9,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"testing"
+	"testing/synctest"
+	"time"
 
 	"github.com/gechr/clive"
 	"github.com/gechr/clive/updater"
@@ -299,11 +301,29 @@ func TestRunAwaitingLockRetriesPastFormulaLock(t *testing.T) {
 
 func TestUpgradeRewritesContextDeadlineExceeded(t *testing.T) {
 	buf := captureDefault(t)
-	err := upgradeTimeoutError(context.DeadlineExceeded)
+	err := upgradeTimeoutError(context.DeadlineExceeded, 111*time.Second)
 
 	require.ErrorIs(t, err, updater.ErrReported)
 	require.EqualError(t, err, "update failed: Timed out while waiting for upgrade")
-	require.Equal(t, "ERR ❌ Timed out while waiting for upgrade elapsed=5m\n", buf.String())
+	require.Equal(t, "ERR ❌ Timed out while waiting for upgrade elapsed=1m51s\n", buf.String())
+}
+
+func TestUpgradeReportsElapsedOnParentDeadline(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		buf := captureDefault(t)
+		ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
+		defer cancel()
+
+		r := &runner{
+			brew:    "brew",
+			cfg:     New(clive.Info{}, WithFormula("app")),
+			present: true,
+		}
+		err := r.upgrade(ctx)
+
+		require.ErrorIs(t, err, updater.ErrReported)
+		require.Equal(t, "ERR ❌ Timed out while waiting for upgrade\n", buf.String())
+	})
 }
 
 func captureDefault(t *testing.T) *bytes.Buffer {

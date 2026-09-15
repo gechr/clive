@@ -30,6 +30,7 @@ import (
 	"github.com/gechr/clive"
 	"github.com/gechr/clive/updater"
 	"github.com/gechr/clog"
+	"github.com/gechr/clog/field/duration"
 	"github.com/gechr/clog/fx"
 	"github.com/gechr/x/human"
 	xos "github.com/gechr/x/os"
@@ -388,9 +389,10 @@ type runner struct {
 // upgrade upgrades an installed formula, tapping and installing it first when it
 // is not yet present. A dev build re-fetches HEAD so it stays on source.
 func (r *runner) upgrade(ctx context.Context) (err error) {
+	start := time.Now()
 	ctx, cancel := context.WithTimeout(ctx, brewUpgradeTimeout)
 	defer cancel()
-	defer func() { err = upgradeTimeoutError(err) }()
+	defer func() { err = upgradeTimeoutError(err, time.Since(start)) }()
 
 	if !r.present {
 		return r.install(ctx, headBuild.MatchString(r.current))
@@ -418,10 +420,10 @@ func (r *runner) upgrade(ctx context.Context) (err error) {
 	)
 }
 
-func upgradeTimeoutError(err error) error {
+func upgradeTimeoutError(err error, elapsed time.Duration) error {
 	if errors.Is(err, context.DeadlineExceeded) {
 		msg := "Timed out while waiting for upgrade"
-		clog.Error().Duration("elapsed", brewUpgradeTimeout).Msg(msg)
+		clog.Error().Duration("elapsed", elapsed, duration.WithMinimum(time.Second)).Msg(msg)
 		//nolint:staticcheck // user-facing message
 		return fmt.Errorf("%w: %w", updater.ErrReported, errors.New(msg))
 	}
