@@ -14,7 +14,7 @@ require (
 	github.com/hashicorp/go-version v1.9.0
 	github.com/quasilyte/go-ruleguard/dsl v0.3.23
 	github.com/stretchr/testify v1.12.1
-	github.com/ulikunitz/xz v0.5.16
+	github.com/ulikunitz/xz v0.5.17
 )
 
 require (
