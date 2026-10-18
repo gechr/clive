@@ -31,8 +31,8 @@ func TestWaitLockBlocksUntilReleased(t *testing.T) {
 
 	// Still blocked while the lock is held.
 	select {
-	case <-done:
-		t.Fatal("waitLock returned while the lock was still held")
+	case err := <-done:
+		t.Fatalf("waitLock returned while the lock was still held: %v", err)
 	case <-time.After(brewLockPoll + 500*time.Millisecond):
 	}
 
@@ -104,8 +104,8 @@ func TestRunAwaitingLockRelabelsWhileBlocked(t *testing.T) {
 
 	// Blocked while the lock is held: it has entered the wait but not returned.
 	select {
-	case <-done:
-		t.Fatal("runAwaitingLock returned while the formula lock was held")
+	case err := <-done:
+		t.Fatalf("runAwaitingLock returned while the formula lock was held: %v", err)
 	case <-time.After(brewLockPoll + 500*time.Millisecond):
 	}
 	require.Equal(t, []bool{true}, snapshot())
