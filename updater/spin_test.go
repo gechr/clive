@@ -95,3 +95,20 @@ func TestSpinTimeoutSupplantsSpinnerOnTimeout(t *testing.T) {
 		buf.String(),
 	)
 }
+
+func TestSpinTimeoutInheritsTersePresetGlyph(t *testing.T) {
+	buf := captureDefault(t)
+	clog.ApplyPreset(clog.TersePreset())
+
+	err := updater.SpinTimeout(
+		context.Background(),
+		"Fetching",
+		"Fetched",
+		"Timed out",
+		time.Minute,
+		func(context.Context) error { return nil },
+	)
+
+	require.NoError(t, err)
+	require.Equal(t, "⏳ Fetching\n✔︎ Fetched\n", buf.String())
+}

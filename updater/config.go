@@ -1,6 +1,7 @@
 package updater
 
 import (
+	"cmp"
 	"image/color"
 	"time"
 
@@ -14,22 +15,17 @@ import (
 // carry an explicit colour: since Report emits every outcome at the same
 // clog level, a per-outcome colour cannot come from clog's level styling, so
 // the colour is baked into the glyph string itself (like the version fields
-// in updateLinks). A nil colour leaves clog's per-level symbol style to
-// govern, which is the default. The set is aligned with a host's own glyph
-// set and timing preferences through the With* options and [SetConfig]; it
-// is never exposed directly.
+// in updateLinks). Unless a host overrides them through the With* options and
+// [SetConfig], the glyphs follow the symbol set declared on clog's default
+// logger (see [clog.SymbolSet]): emoji by default, or text glyphs once the
+// host applies a text preset such as [clog.TersePreset]. The set is never
+// exposed directly.
 type Config struct {
-	upToDate   string // "already up-to-date" report (default 🚀)
-	upgraded   string // version increase (default ⬆️)
-	downgraded string // version decrease (default ⬇️)
-	done       string // completed spinner step (default ✅)
-	trash      string // stray non-Homebrew copy trashed/removed (default 🗑️)
-
-	upToDateColor   color.Color // nil ⇒ clog's per-level symbol style
-	upgradedColor   color.Color
-	downgradedColor color.Color
-	doneColor       color.Color
-	trashColor      color.Color
+	upToDate   glyphOverride // "already up-to-date" report
+	upgraded   glyphOverride // version increase
+	downgraded glyphOverride // version decrease
+	done       glyphOverride // completed spinner step
+	trash      glyphOverride // stray non-Homebrew copy trashed/removed
 
 	messageColor color.Color // nil ⇒ normal (plain) message text
 
@@ -39,6 +35,69 @@ type Config struct {
 	// gradientMax is the duration mapped to the end of the elapsed and
 	// duration gradients on spinner lines.
 	gradientMax time.Duration
+}
+
+// glyph is a symbol and its colour. A nil colour leaves clog's per-level
+// symbol style to govern.
+type glyph struct {
+	symbol string
+	color  color.Color
+}
+
+// glyphOverride is a host's override of one glyph. Each part left unset falls
+// back to the glyph set matching clog's declared symbol set.
+type glyphOverride struct {
+	symbol   string      // "" ⇒ inherit the symbol
+	color    color.Color // used only when colorSet
+	colorSet bool        // true ⇒ color applies, even when nil
+}
+
+// resolve renders the glyph, filling unset parts from def.
+func (o glyphOverride) resolve(def glyph) string {
+	clr := def.color
+	if o.colorSet {
+		clr = o.color
+	}
+	return colored(cmp.Or(o.symbol, def.symbol), clr)
+}
+
+// glyphSet is one family of the updater's glyphs.
+type glyphSet struct {
+	upToDate, upgraded, downgraded, done, trash glyph
+}
+
+var (
+	green  = lipgloss.Color("2")
+	red    = lipgloss.Color("1")
+	yellow = lipgloss.Color("3")
+)
+
+// emojiGlyphs match clog's default emoji symbols ([clog.SymbolSetEmoji]).
+var emojiGlyphs = glyphSet{
+	upToDate:   glyph{symbol: "🚀"},
+	upgraded:   glyph{symbol: "⬆️"},
+	downgraded: glyph{symbol: "⬇️"},
+	done:       glyph{symbol: "✅"},
+	trash:      glyph{symbol: "🗑️", color: yellow},
+}
+
+// textGlyphs match clog's single-width text symbols ([clog.SymbolSetText]).
+var textGlyphs = glyphSet{
+	upToDate:   glyph{symbol: "✔︎", color: green},
+	upgraded:   glyph{symbol: "↑", color: green},
+	downgraded: glyph{symbol: "↓", color: red},
+	done:       glyph{symbol: "✔︎", color: green},
+	trash:      glyph{symbol: "✘", color: yellow},
+}
+
+// activeGlyphs returns the glyph set matching the symbol set declared on
+// clog's default logger. It is read on every line, so the order in which a
+// host applies its clog preset and [SetConfig] does not matter.
+func activeGlyphs() glyphSet {
+	if clog.GetSymbolSet() == clog.SymbolSetText {
+		return textGlyphs
+	}
+	return emojiGlyphs
 }
 
 const (
@@ -52,14 +111,6 @@ const (
 // Spin, and their completion-line variants. It starts at the defaults and is
 // mutated only by the With* options applied through SetConfig.
 var cfg = Config{
-	upToDate:   "🚀",
-	upgraded:   "⬆️",
-	downgraded: "⬇️",
-	done:       "✅",
-	trash:      "🗑️",
-
-	trashColor: lipgloss.Color("3"), // yellow by default
-
 	elapsedMinimum: defaultElapsedMinimum,
 	gradientMax:    defaultGradientMax,
 }
@@ -76,11 +127,11 @@ func colored(sym string, c color.Color) string {
 	return lipgloss.NewStyle().Foreground(c).Render(sym)
 }
 
-func (c Config) styledUpToDate() string   { return colored(c.upToDate, c.upToDateColor) }
-func (c Config) styledUpgraded() string   { return colored(c.upgraded, c.upgradedColor) }
-func (c Config) styledDowngraded() string { return colored(c.downgraded, c.downgradedColor) }
-func (c Config) styledDone() string       { return colored(c.done, c.doneColor) }
-func (c Config) styledTrash() string      { return colored(c.trash, c.trashColor) }
+func (c Config) styledUpToDate() string   { return c.upToDate.resolve(activeGlyphs().upToDate) }
+func (c Config) styledUpgraded() string   { return c.upgraded.resolve(activeGlyphs().upgraded) }
+func (c Config) styledDowngraded() string { return c.downgraded.resolve(activeGlyphs().downgraded) }
+func (c Config) styledDone() string       { return c.done.resolve(activeGlyphs().done) }
+func (c Config) styledTrash() string      { return c.trash.resolve(activeGlyphs().trash) }
 
 // messageStyle returns the style for an update line's message text: plain by
 // default, or coloured when WithMessageColor is set. It replaces (not nests
@@ -98,60 +149,66 @@ func (c Config) messageStyle() *lipgloss.Style {
 // timing thresholds. Apply it with [SetConfig].
 type ConfigOption func(*Config)
 
-// WithUpToDateSymbol overrides the "already up-to-date" glyph (default 🚀).
+// WithUpToDateSymbol overrides the "already up-to-date" glyph (default 🚀,
+// or ✔︎ under [clog.SymbolSetText]).
 func WithUpToDateSymbol(s string) ConfigOption {
-	return func(c *Config) { c.upToDate = s }
+	return func(c *Config) { c.upToDate.symbol = s }
 }
 
-// WithUpgradedSymbol overrides the upgrade glyph (default ⬆️).
+// WithUpgradedSymbol overrides the upgrade glyph (default ⬆️, or ↑ under
+// [clog.SymbolSetText]).
 func WithUpgradedSymbol(s string) ConfigOption {
-	return func(c *Config) { c.upgraded = s }
+	return func(c *Config) { c.upgraded.symbol = s }
 }
 
-// WithDowngradedSymbol overrides the downgrade glyph (default ⬇️).
+// WithDowngradedSymbol overrides the downgrade glyph (default ⬇️, or ↓ under
+// [clog.SymbolSetText]).
 func WithDowngradedSymbol(s string) ConfigOption {
-	return func(c *Config) { c.downgraded = s }
+	return func(c *Config) { c.downgraded.symbol = s }
 }
 
-// WithDoneSymbol overrides the completed-spinner-step glyph (default ✅).
+// WithDoneSymbol overrides the completed-spinner-step glyph (default ✅, or ✔︎
+// under [clog.SymbolSetText]).
 func WithDoneSymbol(s string) ConfigOption {
-	return func(c *Config) { c.done = s }
+	return func(c *Config) { c.done.symbol = s }
 }
 
 // WithTrashSymbol overrides the glyph on the line reporting a stray non-Homebrew
-// copy being trashed or removed (default 🗑️).
+// copy being trashed or removed (default 🗑️, or ✘ under [clog.SymbolSetText]).
 func WithTrashSymbol(s string) ConfigOption {
-	return func(c *Config) { c.trash = s }
+	return func(c *Config) { c.trash.symbol = s }
 }
 
-// WithUpToDateColor colours the "already up-to-date" glyph; nil (the default)
-// leaves clog's per-level symbol style in charge.
+// WithUpToDateColor colours the "already up-to-date" glyph (default none, or
+// green under [clog.SymbolSetText]); nil leaves clog's per-level symbol style
+// in charge.
 func WithUpToDateColor(clr color.Color) ConfigOption {
-	return func(c *Config) { c.upToDateColor = clr }
+	return func(c *Config) { c.upToDate.color, c.upToDate.colorSet = clr, true }
 }
 
-// WithUpgradedColor colours the upgrade glyph; nil (the default) leaves clog's
-// per-level symbol style in charge.
+// WithUpgradedColor colours the upgrade glyph (default none, or green under
+// [clog.SymbolSetText]); nil leaves clog's per-level symbol style in charge.
 func WithUpgradedColor(clr color.Color) ConfigOption {
-	return func(c *Config) { c.upgradedColor = clr }
+	return func(c *Config) { c.upgraded.color, c.upgraded.colorSet = clr, true }
 }
 
-// WithDowngradedColor colours the downgrade glyph; nil (the default) leaves
-// clog's per-level symbol style in charge.
+// WithDowngradedColor colours the downgrade glyph (default none, or red under
+// [clog.SymbolSetText]); nil leaves clog's per-level symbol style in charge.
 func WithDowngradedColor(clr color.Color) ConfigOption {
-	return func(c *Config) { c.downgradedColor = clr }
+	return func(c *Config) { c.downgraded.color, c.downgraded.colorSet = clr, true }
 }
 
-// WithDoneColor colours the completed-spinner-step glyph; nil (the default)
-// leaves clog's per-level symbol style in charge.
+// WithDoneColor colours the completed-spinner-step glyph (default none, or
+// green under [clog.SymbolSetText]); nil leaves clog's per-level symbol style
+// in charge.
 func WithDoneColor(clr color.Color) ConfigOption {
-	return func(c *Config) { c.doneColor = clr }
+	return func(c *Config) { c.done.color, c.done.colorSet = clr, true }
 }
 
-// WithTrashColor colours the stray-copy glyph; nil (the default) leaves clog's
-// per-level symbol style in charge.
+// WithTrashColor colours the stray-copy glyph (default yellow); nil leaves
+// clog's per-level symbol style in charge.
 func WithTrashColor(clr color.Color) ConfigOption {
-	return func(c *Config) { c.trashColor = clr }
+	return func(c *Config) { c.trash.color, c.trash.colorSet = clr, true }
 }
 
 // WithMessageColor colours the message text on the updater's lines. The default
