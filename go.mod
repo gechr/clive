@@ -9,7 +9,7 @@ require (
 	github.com/cli/go-gh/v2 v2.17.0
 	github.com/gechr/clog v0.17.7
 	github.com/gechr/gorules v0.0.4
-	github.com/gechr/x v0.6.6
+	github.com/gechr/x v0.7.0
 	github.com/google/go-github/v88 v88.0.0
 	github.com/hashicorp/go-version v1.9.0
 	github.com/quasilyte/go-ruleguard/dsl v0.3.23
